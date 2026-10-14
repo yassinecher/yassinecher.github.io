@@ -3,13 +3,14 @@ import { useGLTF, useTexture, useVideoTexture } from "@react-three/drei"; // Add
 import { useFrame } from "@react-three/fiber";
 import { animate, useMotionValue } from "framer-motion";
 import * as THREE from "three";
+import { asset } from "../lib/asset";
 
 export function Room(props) {
 
-  const { nodes } = useGLTF("models/Room.gltf");
+  const { nodes } = useGLTF(asset("models/Room.gltf"));
   
-  const texture = useTexture("textures/bakedNight.jpg");
-  const textureVSCode = useVideoTexture("textures/vscode.mp4");
+  const texture = useTexture(asset("textures/bakedNight.jpg"));
+  const textureVSCode = useVideoTexture(asset("textures/vscode.mp4"));
   
   texture.flipY = false;
   texture.encoding = THREE.sRGBEncoding;
@@ -48,4 +49,4 @@ map:texture,
   );
 }
 
-useGLTF.preload("models/Room.gltf");
+useGLTF.preload(asset("models/Room.gltf"));

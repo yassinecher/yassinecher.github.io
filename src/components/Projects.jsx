@@ -5,31 +5,15 @@ import { animate, useMotionValue } from "framer-motion";
 import { motion } from "framer-motion-3d";
 import { atom, useAtom } from "jotai";
 import { useEffect, useRef } from "react";
+import { projects as allProjects } from "../data/projects";
+import { asset } from "../lib/asset";
 
-export const projects = [
-  {
-    title: "AppoitmentEase",
-    url: "https://www.behance.net/gallery/195540733/AppoitmentEase",
-    image: "projects/appotmentease.jpg",
-    description: "Angular, Springboot, openAi api",
-  },
-  {
-    title: "GamingGear",
-    url: "https://www.behance.net/gallery/195543119/GamingGear",
-    image: "projects/gaminggear.jpg",
-    description: "NextJs, postgresql, tailwind, Prismadb",
-  },
-  {
-    title: "AuxtarGroup",
-    url: "https://www.behance.net/gallery/195545695/Auxstargroup",
-    image: "projects/auxtar.jpg",
-    description: "Wordpress, Elementor",
-  },
- 
-];
+export const projects = allProjects.filter((p) => p.featured);
+
+export const currentProjectAtom = atom(0);
 
 const Project = (props) => {
-  const { project, highlighted } = props;
+  const { project, highlighted, onOpen } = props;
 
   const background = useRef();
   const bgOpacity = useMotionValue(0.4);
@@ -42,83 +26,68 @@ const Project = (props) => {
     background.current.material.opacity = bgOpacity.get();
   });
 
+  const open = (e) => {
+    e.stopPropagation();
+    if (highlighted) onOpen(project.slug);
+  };
+
   return (
-    <group position-y={-2} {...props}>
-      <mesh
-        position-z={-0.002}
-       
-          ref={background} 
-      >
-        <planeGeometry args={[6.2, 7.2]} />
+    <group position-y={-1.8} scale={0.85} {...props}>
+      <mesh position-z={-0.002} ref={background} onClick={open}>
+        <planeGeometry args={[6.2, 7.6]} />
         <meshBasicMaterial color="black" transparent opacity={0.4} />
       </mesh>
       <Image
-        scale={[6.2,6.2 , 0.001]}
-        url={project.image}
+        scale={[6.2, 6, 0.001]}
+        url={asset(project.cover)}
         toneMapped={false}
         position-y={1}
+        onClick={open}
       />
       <Text
-        maxWidth={2}
-        anchorX={"left"}
-        anchorY={"top"}
-        fontSize={0.3}
-        position={[-2.5, -2.2,  -0.001]}
-        font="bold"
+        maxWidth={5.6}
+        anchorX="left"
+        anchorY="top"
+        fontSize={0.34}
+        position={[-2.8, -2.2, 0]}
       >
         {project.title.toUpperCase()}
       </Text>
       <Text
-        maxWidth={5}
+        maxWidth={5.6}
         anchorX="left"
         anchorY="top"
         fontSize={0.2}
-        position={[-2.5, -2.5,  0]}
+        color="#a1a1aa"
+        position={[-2.8, -2.65, 0]}
       >
-        {project.description}
+        {project.stack.slice(0, 4).join("  ·  ")}
       </Text>
-      <mesh
-       position={[-1.8, -2.95,  0]}
-       position-z={ -0.001}
-       onClick={() => window.open(project.url, "_blank")}
-       
-      >
-        <planeGeometry args={[1.4, 0.3]} />
-        <meshBasicMaterial color="#f59e0b"  transparent opacity={1} />
+      <mesh position={[-1.75, -3.25, 0]} onClick={open}>
+        <planeGeometry args={[2.1, 0.4]} />
+        <meshBasicMaterial color="#f59e0b" />
       </mesh>
-            <Text
-         
-            
-            position={[-2.35 , -2.85, 0]}
-       
-            maxWidth={5}
-            fontSize={0.2}
-            anchorX="left"
-            anchorY="top"
-            color="black"
-            
-            paddingX={0.2}
-            paddingY={0.1}
-            borderRadius={0.05}
-            borderColor="white"
-            borderWidth={0.01}
-       
+      <Text
+        position={[-1.75, -3.25, 0.001]}
+        fontSize={0.19}
+        anchorX="center"
+        anchorY="middle"
+        color="black"
+        onClick={open}
       >
-        View Details
+        VIEW CASE STUDY
       </Text>
-         </group>
-  
+    </group>
   );
 };
 
-export const currentProjectAtom = atom(Math.floor(projects.length / 2));
-
-export const Projects = () => {
+// `onOpen` comes from the page: this renders inside the Canvas, outside the router's context.
+export const Projects = ({ onOpen }) => {
   const { viewport } = useThree();
   const [currentProject] = useAtom(currentProjectAtom);
 
   return (
-    <group position-y={-viewport.height * 2 + 1}>
+    <group position-y={-viewport.height * 3 + 1}>
       {projects.map((project, index) => (
         <motion.group
           key={"project_" + index}
@@ -131,7 +100,11 @@ export const Projects = () => {
             rotateZ: currentProject === index ? 0 : -0.1 * Math.PI,
           }}
         >
-          <Project project={project} highlighted={index === currentProject} />
+          <Project
+            project={project}
+            highlighted={index === currentProject}
+            onOpen={onOpen}
+          />
         </motion.group>
       ))}
     </group>

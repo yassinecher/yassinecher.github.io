@@ -5,3 +5,5 @@ export const framerMotionConfig = {
   damping: 55,
   restDelta: 0.0001,
 };
+
+export const SECTIONS = ["About", "Stack", "Experience", "Projects", "Contact"];

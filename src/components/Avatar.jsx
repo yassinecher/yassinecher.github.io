@@ -6,6 +6,7 @@ import { useFrame } from "@react-three/fiber";
 import { useControls } from "leva";
 import React, { useEffect, useRef } from "react";
 import * as THREE from "three";
+import { asset } from "../lib/asset";
 
 export function Avatar(props) {
   const { animation, wireframe } = props;
@@ -14,14 +15,14 @@ export function Avatar(props) {
     cursorFollow: false,
   });
   const group = useRef();
-  const { nodes, materials } = useGLTF("models/avatar1.glb");
+  const { nodes, materials } = useGLTF(asset("models/avatar1.glb"));
 
-  const { animations: typingAnimation } = useFBX("animations/Typing.fbx");
+  const { animations: typingAnimation } = useFBX(asset("animations/Typing.fbx"));
   const { animations: standingAnimation } = useFBX(
-    "animations/Standing Idle.fbx"
+    asset("animations/Standing Idle.fbx")
   );
   const { animations: fallingAnimation } = useFBX(
-    "animations/Falling Idle.fbx"
+    asset("animations/Falling Idle.fbx")
   );
 
   typingAnimation[0].name = "Typing";
@@ -44,9 +45,9 @@ export function Avatar(props) {
   });
 
   useEffect(() => {
-    actions[animation].reset().fadeIn(0.5).play();
+    actions[animation]?.reset().fadeIn(0.5).play();
     return () => {
-      actions[animation].reset().fadeOut(0.5);
+      actions[animation]?.reset().fadeOut(0.5);
     };
   }, [animation]);
 
@@ -131,7 +132,7 @@ export function Avatar(props) {
   );
 }
 
-useGLTF.preload("models/avatar1.glb");
-useFBX.preload("animations/Typing.fbx");
-useFBX.preload("animations/Standing Idle.fbx");
-useFBX.preload("animations/Falling Idle.fbx");
+useGLTF.preload(asset("models/avatar1.glb"));
+useFBX.preload(asset("animations/Typing.fbx"));
+useFBX.preload(asset("animations/Standing Idle.fbx"));
+useFBX.preload(asset("animations/Falling Idle.fbx"));
