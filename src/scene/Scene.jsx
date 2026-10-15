@@ -3,7 +3,7 @@ import { useFrame, useThree } from "@react-three/fiber";
 import { useMemo, useRef } from "react";
 import * as THREE from "three";
 import { Avatar } from "../components/Avatar";
-import { Room, roomInteractive } from "./Room";
+import { CHAIR_PULL, Room, roomInteractive } from "./Room";
 
 // Camera stops, one per page section, in the room's coordinates. The page scroll position is a
 // float (2.4 = 40% of the way from section 2 to section 3) and the camera glides between stops.
@@ -83,12 +83,12 @@ const CameraRig = ({ progressRef, pointerRef }) => {
 // The avatar, seated in the desk chair with its hands on the keyboard. Values are in room units.
 // The avatar component carries a 0.44 scale from the original scene; undo it here.
 export const SEAT = {
-  position: [0.71, 1.25, -1.89],
-  // Swivelled ~30° toward the keyboard in front of the big monitor
-  rotationY: Math.PI + 0.55,
-  scale: 1.25 / 0.44,
-  // Measured against the desk (top y 1.9) and seat (y 1.6): lean in, lower the arms onto the
-  // keys, angle the thighs under the desk and put the feet on the floor.
+  position: [0.71 + CHAIR_PULL[0], 1.34, -1.89 + CHAIR_PULL[1]],
+  // Swivelled ~11° toward the keyboard (centred at x 0.1, z -3.6 on the desk)
+  rotationY: Math.PI + 0.19,
+  scale: 1.05 / 0.44,
+  // Measured against the desk (top y 1.9), seat (y 1.6) and keyboard (x -0.3..0.5, z -3.75..-3.45):
+  // lean in, lower the arms onto the keys, thighs under the desk, feet on the floor.
   pose: {
     Spine: [0.15, 0, 0],
     Spine1: [0.15, 0, 0],
@@ -97,31 +97,37 @@ export const SEAT = {
     RightArm: [0.2, 0, 0],
     LeftForeArm: [0.2, 0, 0],
     RightForeArm: [0.2, 0, 0],
-    LeftUpLeg: [-0.3, 0, 0],
-    RightUpLeg: [-0.3, 0, 0],
-    LeftLeg: [0.3, 0, 0],
-    RightLeg: [0.3, 0, 0],
+    LeftUpLeg: [-0.55, 0, 0],
+    RightUpLeg: [-0.55, 0, 0],
+    LeftLeg: [0.35, 0, 0],
+    RightLeg: [0.35, 0, 0],
   },
+  // 70% of a calm frame of the typing clip (t = 4 s), 30% of the live clip: hands stay on the keys
+  calm: { weight: 0.7, time: 4, speed: 1 },
 };
 
-// The room is baked, so only the avatar needs real lights: warm daylight from the window side,
-// and at night a dimmer room with the cool glow of the monitor in front of him.
+// The room is baked, so only the avatar needs real lights. Daytime: soft sky and warm floor
+// bounce plus window light. Evening: dim fill, the cool monitor in front of him and the desk lamp.
 const AvatarLights = ({ nightRef }) => {
-  const ambient = useRef();
+  const hemi = useRef();
   const sun = useRef();
   const screen = useRef();
+  const lamp = useRef();
+  const n = useRef(0);
   useFrame((_, delta) => {
-    const n = THREE.MathUtils.damp(ambient.current.userData.n ?? 0, nightRef.current, 2.5, Math.min(delta, 0.1));
-    ambient.current.userData.n = n;
-    ambient.current.intensity = THREE.MathUtils.lerp(0.9, 0.35, n);
-    sun.current.intensity = THREE.MathUtils.lerp(1.6, 0.15, n);
-    screen.current.intensity = THREE.MathUtils.lerp(0.4, 2.2, n);
+    n.current = THREE.MathUtils.damp(n.current, nightRef.current, 2.5, Math.min(delta, 0.1));
+    const k = n.current;
+    hemi.current.intensity = THREE.MathUtils.lerp(1.15, 0.3, k);
+    sun.current.intensity = THREE.MathUtils.lerp(1.1, 0.05, k);
+    screen.current.intensity = THREE.MathUtils.lerp(0, 1.6, k);
+    lamp.current.intensity = THREE.MathUtils.lerp(0, 0.9, k);
   });
   return (
     <>
-      <ambientLight ref={ambient} color="#fff1e0" intensity={0.9} />
-      <directionalLight ref={sun} color="#ffe4c4" position={[-6, 9, 6]} intensity={1.6} />
-      <pointLight ref={screen} color="#7fb2ff" position={[0.4, 3.4, -3.6]} intensity={0.4} distance={6} />
+      <hemisphereLight ref={hemi} args={["#fff4e6", "#9a6a4a", 1.15]} />
+      <directionalLight ref={sun} color="#ffe9d2" position={[6, 9, -5]} intensity={1.1} />
+      <pointLight ref={screen} color="#8fb8ff" position={[0.2, 3.3, -3.9]} intensity={0} distance={5} decay={2} />
+      <pointLight ref={lamp} color="#ff9a52" position={[-1.6, 3.6, -4]} intensity={0} distance={6} decay={2} />
     </>
   );
 };
@@ -138,7 +144,7 @@ export const Scene = ({ progressRef, nightRef, screenRef, pointerRef, lookRef, o
       scale={SEAT.scale}
       {...roomInteractive("That's me · say hello", "contact", onAction)}
     >
-      <Avatar animation="Typing" wireframe={false} pose={SEAT.pose} lookRef={lookRef} />
+      <Avatar animation="Typing" wireframe={false} pose={SEAT.pose} calm={SEAT.calm} lookRef={lookRef} />
     </group>
   </>
 );

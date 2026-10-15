@@ -9,6 +9,9 @@ import { createMacScreen, createPcScreen, createTvScreen } from "./screens";
 
 // "My Room in 3D" by Bruno Simon (models and bakes), assembled in its original coordinates.
 
+// How far the chair (and the avatar in it) is pulled toward the desk, in room units (x, z).
+export const CHAIR_PULL = [-0.15, -0.25];
+
 const model = (name) => asset(`models/${name}`);
 const texture = (name) => asset(`textures/${name}`);
 
@@ -30,25 +33,33 @@ const setMaterial = (object, material) =>
   });
 
 // A screen mesh whose texture is redrawn from a canvas "program" (see screens.js).
-const useScreen = (mesh, program) => {
-  const { canvas, map } = useMemo(() => {
+// Programs lay out in their own logical size; the canvas is `scale` times that, and the texture
+// skips mipmaps since it is re-uploaded every time it is redrawn.
+const useScreen = (mesh, program, scale) => {
+  const { canvas, map, ctx } = useMemo(() => {
     const canvas = document.createElement("canvas");
-    canvas.width = program.width;
-    canvas.height = program.height;
+    canvas.width = Math.round(program.width * scale);
+    canvas.height = Math.round(program.height * scale);
+    const ctx = canvas.getContext("2d");
+    ctx.setTransform(scale, 0, 0, scale, 0, 0);
     const map = new THREE.CanvasTexture(canvas);
     map.encoding = THREE.sRGBEncoding;
-    map.anisotropy = 8;
-    return { canvas, map };
-  }, [program]);
+    map.generateMipmaps = false;
+    map.minFilter = THREE.LinearFilter;
+    map.anisotropy = 4;
+    return { canvas, map, ctx };
+  }, [program, scale]);
   useLayoutEffect(() => {
     mesh.material = new THREE.MeshBasicMaterial({ map, toneMapped: false });
   }, [mesh, map]);
-  const ctx = useMemo(() => canvas.getContext("2d"), [canvas]);
   return (time, dt) => {
-    program.draw(ctx, canvas.width, canvas.height, time, dt);
+    program.draw(ctx, program.width, program.height, time, dt);
     map.needsUpdate = true;
   };
 };
+
+// Redraw budget per screen: enough for typing and a smooth bounce, a fraction of 60 fps.
+const SCREEN_FPS = { pc: 15, mac: 10, tv: 20 };
 
 // Damp a value toward a target, frame-rate independent.
 const damp = (current, target, lambda, dt) => THREE.MathUtils.damp(current, target, lambda, dt);
@@ -77,15 +88,14 @@ export const roomInteractive = (label, action, onAction) => ({
 
 export const Room = ({ nightRef, screenRef, onAction }) => {
   const [room, chair, pc, mac, steam, elgato, leds, loupedeck] = MODELS.map((name) => useGLTF(model(name)));
-  const [day, night, neutral, lightMap, ledMask] = useTexture([
+  const [day, night, lightMap, ledMask] = useTexture([
     texture("bakedDay.jpg"),
     texture("bakedNight.jpg"),
-    texture("bakedNeutral.jpg"),
     texture("lightMap.jpg"),
     texture("googleHomeLedMask.png"),
   ]);
 
-  const baked = useMemo(() => createBakedMaterial({ day, night, neutral, lightMap }), [day, night, neutral, lightMap]);
+  const baked = useMemo(() => createBakedMaterial({ day, night, lightMap }), [day, night, lightMap]);
   const steamMaterial = useMemo(() => createCoffeeSteamMaterial(), []);
   const programs = useMemo(() => ({ pc: createPcScreen(), mac: createMacScreen(), tv: createTvScreen() }), []);
 
@@ -113,7 +123,14 @@ export const Room = ({ nightRef, screenRef, onAction }) => {
   useLayoutEffect(() => {
     // In the original scene the chair top swivels toward the room; here it faces the desk, with
     // the avatar sitting in it.
-    chair.scene.children[0].rotation.y = -Math.PI / 2 + 0.55;
+    const chairTop = chair.scene.children[0];
+    chairTop.rotation.y = -Math.PI / 2 + 0.19;
+    // Pulled in toward the desk, like someone about to type
+    if (!chairTop.userData.pulled) {
+      chairTop.position.x += CHAIR_PULL[0];
+      chairTop.position.z += CHAIR_PULL[1];
+      chairTop.userData.pulled = true;
+    }
     setMaterial(room.scene, baked);
     setMaterial(chair.scene, baked);
     setMaterial(steam.scene, steamMaterial);
@@ -129,12 +146,13 @@ export const Room = ({ nightRef, screenRef, onAction }) => {
     return mesh;
   }, []);
 
-  const drawPc = useScreen(pc.scene.children[0], programs.pc);
-  const drawMac = useScreen(mac.scene.children[0], programs.mac);
-  const drawTv = useScreen(tvMesh, programs.tv);
+  const drawPc = useScreen(pc.scene.children[0], programs.pc, 0.85);
+  const drawMac = useScreen(mac.scene.children[0], programs.mac, 0.75);
+  const drawTv = useScreen(tvMesh, programs.tv, 0.6);
+  const frustum = useMemo(() => ({ f: new THREE.Frustum(), m: new THREE.Matrix4() }), []);
 
   const loupedeckColors = ["#af55cf", "#dbd85d", "#e86b24", "#b81b54"];
-  const screenClock = useRef(0);
+  const screenClocks = useRef({ pc: 0, mac: 0, tv: 0 });
 
   useFrame((state, delta) => {
     const dt = Math.min(delta, 0.1);
@@ -165,12 +183,19 @@ export const Room = ({ nightRef, screenRef, onAction }) => {
     programs.pc.setContent(screenRef.current);
 
     // Screens redraw at ~30 fps: plenty for text, half the work
-    screenClock.current += dt;
-    if (screenClock.current >= 1 / 30) {
-      drawPc(time, screenClock.current);
-      drawMac(time, screenClock.current);
-      drawTv(time, screenClock.current);
-      screenClock.current = 0;
+    // Only redraw screens the camera can see, each at its own rate
+    frustum.m.multiplyMatrices(state.camera.projectionMatrix, state.camera.matrixWorldInverse);
+    frustum.f.setFromProjectionMatrix(frustum.m);
+    const clocks = screenClocks.current;
+    for (const [key, draw, mesh] of [
+      ["pc", drawPc, pc.scene.children[0]],
+      ["mac", drawMac, mac.scene.children[0]],
+      ["tv", drawTv, tvMesh],
+    ]) {
+      clocks[key] += dt;
+      if (clocks[key] < 1 / SCREEN_FPS[key]) continue;
+      if (frustum.f.intersectsObject(mesh)) draw(time, clocks[key]);
+      clocks[key] = 0;
     }
   });
 

@@ -1,6 +1,6 @@
 import * as THREE from "three";
 
-// Room lighting comes from three Blender bakes (day, night, neutral) mixed together, plus a light map
+// Room lighting comes from two Blender bakes (day and night) mixed together, plus a light map
 // whose RGB channels mark where the TV (red), desk lamp (green) and PC screen (blue) light falls.
 // Approach from Bruno Simon's "My Room in 3D", which this room model comes from.
 
@@ -15,10 +15,8 @@ const vertexShader = /* glsl */ `
 const fragmentShader = /* glsl */ `
   uniform sampler2D uBakedDayTexture;
   uniform sampler2D uBakedNightTexture;
-  uniform sampler2D uBakedNeutralTexture;
   uniform sampler2D uLightMapTexture;
   uniform float uNightMix;
-  uniform float uNeutralMix;
   uniform vec3 uLightTvColor;
   uniform float uLightTvStrength;
   uniform vec3 uLightDeskColor;
@@ -34,8 +32,7 @@ const fragmentShader = /* glsl */ `
   void main() {
     vec3 day = texture2D(uBakedDayTexture, vUv).rgb;
     vec3 night = texture2D(uBakedNightTexture, vUv).rgb;
-    vec3 neutral = texture2D(uBakedNeutralTexture, vUv).rgb;
-    vec3 color = mix(mix(day, night, uNightMix), neutral, uNeutralMix);
+    vec3 color = mix(day, night, uNightMix);
     vec3 lightMap = texture2D(uLightMapTexture, vUv).rgb;
 
     color = lighten(color, uLightTvColor, lightMap.r * uLightTvStrength);
@@ -46,8 +43,8 @@ const fragmentShader = /* glsl */ `
   }
 `;
 
-export const createBakedMaterial = ({ day, night, neutral, lightMap }) => {
-  for (const texture of [day, night, neutral]) {
+export const createBakedMaterial = ({ day, night, lightMap }) => {
+  for (const texture of [day, night]) {
     texture.flipY = false;
     texture.encoding = THREE.sRGBEncoding;
   }
@@ -57,10 +54,8 @@ export const createBakedMaterial = ({ day, night, neutral, lightMap }) => {
     uniforms: {
       uBakedDayTexture: { value: day },
       uBakedNightTexture: { value: night },
-      uBakedNeutralTexture: { value: neutral },
       uLightMapTexture: { value: lightMap },
       uNightMix: { value: 0 },
-      uNeutralMix: { value: 0 },
       uLightTvColor: { value: new THREE.Color("#ff115e") },
       uLightTvStrength: { value: 0 },
       uLightDeskColor: { value: new THREE.Color("#ff6700") },

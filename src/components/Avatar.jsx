@@ -8,29 +8,26 @@ import * as THREE from "three";
 import { asset } from "../lib/asset";
 
 export function Avatar(props) {
-  const { animation, wireframe, pose = {}, lookRef } = props;
+  const { animation, wireframe, pose = {}, lookRef, calm = { weight: 0, time: 0, speed: 1 } } = props;
   const group = useRef();
   const { nodes, materials } = useGLTF(asset("models/avatar1.glb"));
 
   const { animations: typingAnimation } = useFBX(asset("animations/Typing.fbx"));
-  const { animations: standingAnimation } = useFBX(
-    asset("animations/Standing Idle.fbx")
-  );
-  const { animations: fallingAnimation } = useFBX(
-    asset("animations/Falling Idle.fbx")
-  );
 
   typingAnimation[0].name = "Typing";
-  standingAnimation[0].name = "Standing";
-  fallingAnimation[0].name = "Falling";
 
   // Keep the same array between renders: drei's useAnimations uncaches (stops) every action when it
   // receives a new one, which froze the avatar mid-pose whenever the page re-rendered.
-  const clips = useMemo(
-    () => [typingAnimation[0], standingAnimation[0], fallingAnimation[0]],
-    [typingAnimation, standingAnimation, fallingAnimation]
-  );
-  const { actions } = useAnimations(clips, group);
+  const clips = useMemo(() => [typingAnimation[0]], [typingAnimation]);
+  const { actions, mixer } = useAnimations(clips, group);
+
+  // The stock typing clip swings the hands far across the desk. Mixing it with a frozen calm frame
+  // of the same clip keeps the hands on the keys and leaves the small, quick movements.
+  const anchorClip = useMemo(() => {
+    const clip = clips[0].clone();
+    clip.name = "TypingAnchor";
+    return clip;
+  }, [clips]);
 
   const lean = useRef(0);
 
@@ -95,17 +92,41 @@ export function Avatar(props) {
   });
 
   useEffect(() => {
-    actions[animation]?.reset().fadeIn(0.5).play();
-    return () => {
-      actions[animation]?.reset().fadeOut(0.5);
+    const typing = actions[animation];
+    if (!typing) return;
+    const anchor = mixer.clipAction(anchorClip, group.current);
+    typing.reset().play();
+    anchor.reset().play();
+    anchor.paused = true;
+    const apply = () => {
+      anchor.time = calm.time;
+      anchor.setEffectiveWeight(calm.weight);
+      typing.setEffectiveWeight(1 - calm.weight);
+      typing.timeScale = calm.speed;
     };
-  }, [animation]);
+    apply();
+    return () => {
+      typing.stop();
+      anchor.stop();
+    };
+  }, [animation, actions, mixer, anchorClip]);
 
+  // Matte everything so the avatar sits with the soft, baked look of the room: no shiny streaks
+  // on the hair or plastic-looking skin.
   useEffect(() => {
     Object.values(materials).forEach((material) => {
       material.wireframe = wireframe;
+      material.metalness = 0;
+      material.roughness = Math.max(material.roughness ?? 1, 0.9);
+      material.envMapIntensity = 0;
+      if (material.name === "Wolf3D_Hair") {
+        material.roughness = 1;
+        material.normalScale?.set(0.35, 0.35);
+        material.color.set("#d8d0c8");
+      }
+      material.needsUpdate = true;
     });
-  }, [wireframe]);
+  }, [materials, wireframe]);
 
   return (
     <group {...props} scale={0.44} ref={group} dispose={null}>
@@ -184,5 +205,3 @@ export function Avatar(props) {
 
 useGLTF.preload(asset("models/avatar1.glb"));
 useFBX.preload(asset("animations/Typing.fbx"));
-useFBX.preload(asset("animations/Standing Idle.fbx"));
-useFBX.preload(asset("animations/Falling Idle.fbx"));

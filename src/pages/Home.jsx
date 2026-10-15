@@ -1,5 +1,5 @@
 import { ValidationError, useForm } from "@formspree/react";
-import { useProgress } from "@react-three/drei";
+import { PerformanceMonitor, useProgress } from "@react-three/drei";
 import { Canvas } from "@react-three/fiber";
 import { useAtom } from "jotai";
 import Lenis from "lenis";
@@ -426,6 +426,7 @@ export const Home = () => {
     return hour >= 19 || hour < 6;
   });
   const [ready, setReady] = useState(false);
+  const [dpr, setDpr] = useState(() => Math.min(1.5, window.devicePixelRatio));
   const lenisRef = useRef(null);
   const [selected, setSelected] = useState(0);
 
@@ -562,7 +563,16 @@ export const Home = () => {
   return (
     <div className="font-sans text-ink">
       <div className="fixed inset-0 z-0">
-        <Canvas camera={{ fov: 20, near: 0.1, far: 150, position: [-18.9, 15.6, 18.9] }} gl={{ alpha: true, antialias: true }} dpr={[1, 2]}>
+        <Canvas
+          camera={{ fov: 20, near: 0.1, far: 150, position: [-18.9, 15.6, 18.9] }}
+          gl={{ alpha: true, antialias: true, powerPreference: "high-performance" }}
+          dpr={dpr}
+        >
+          {/* Drop the pixel ratio on machines that can't keep up, raise it back when they can */}
+          <PerformanceMonitor
+            onDecline={() => setDpr(1)}
+            onIncline={() => setDpr(Math.min(1.5, window.devicePixelRatio))}
+          />
           <Suspense fallback={null}>
             <Scene
               progressRef={progressRef}
