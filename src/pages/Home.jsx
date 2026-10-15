@@ -3,7 +3,7 @@ import { PerformanceMonitor, useProgress } from "@react-three/drei";
 import { Canvas } from "@react-three/fiber";
 import { useAtom } from "jotai";
 import Lenis from "lenis";
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { education, experience, languages, profile, stack } from "../data/profile";
 import { projects as allProjects } from "../data/projects";
@@ -418,13 +418,14 @@ export const Home = () => {
   const screenRef = useRef({});
   const mailRef = useRef({ name: "", email: "", message: "" });
   const pointerRef = useRef({ x: 0, y: 0 });
-  const lookRef = useRef(0); // 1 = the avatar turns to look at you (contact section)
   const [active, setActive] = useState(0);
-  // Evening light by default when it is evening in Tunis
-  const [evening, setEvening] = useState(() => {
+  // Lights: automatic (evening after 7pm in Tunis, and in the contact section) until the visitor
+  // uses the switch; from then on the switch decides.
+  const [lightChoice, setLightChoice] = useState(null);
+  const tunisEvening = useMemo(() => {
     const hour = Number(new Intl.DateTimeFormat("en-GB", { hour: "2-digit", hour12: false, timeZone: "Africa/Tunis" }).format(new Date()));
     return hour >= 19 || hour < 6;
-  });
+  }, []);
   const [ready, setReady] = useState(false);
   const [dpr, setDpr] = useState(() => Math.min(1.5, window.devicePixelRatio));
   const lenisRef = useRef(null);
@@ -524,10 +525,11 @@ export const Home = () => {
   }, []);
 
   // The room goes to evening light in the contact section, or when the switch says so
+  const evening = lightChoice ?? (tunisEvening || active === 4);
+  const toggleEvening = () => setLightChoice(!evening);
   useEffect(() => {
-    nightRef.current = evening || active === 4 ? 1 : 0;
-    lookRef.current = active === 4 ? 1 : 0;
-  }, [evening, active]);
+    nightRef.current = evening ? 1 : 0;
+  }, [evening]);
 
   // The monitor shows the selected project in the work section, and the visitor's message as they
   // write it in the contact section
@@ -556,7 +558,7 @@ export const Home = () => {
 
   // Clicking things in the room
   const onRoomAction = (action) => {
-    if (action === "lights") setEvening((v) => !v);
+    if (action === "lights") toggleEvening();
     else jump(SECTIONS.findIndex((x) => x.id === action));
   };
 
@@ -579,7 +581,6 @@ export const Home = () => {
               nightRef={nightRef}
               screenRef={screenRef}
               pointerRef={pointerRef}
-              lookRef={lookRef}
               onAction={onRoomAction}
             />
             <AvatarTracker targetId="avatar-note" visibleRef={progressRef} />
@@ -615,7 +616,7 @@ export const Home = () => {
       />
 
       <Loader onDone={() => setReady(true)} />
-      <Nav active={active} onJump={jump} evening={evening} toggleEvening={() => setEvening((v) => !v)} />
+      <Nav active={active} onJump={jump} evening={evening} toggleEvening={toggleEvening} />
 
       <main className="pointer-events-none relative z-20">
         <Section index={0} innerRef={setRef(0)}>

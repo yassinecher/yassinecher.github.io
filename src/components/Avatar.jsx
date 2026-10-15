@@ -8,7 +8,7 @@ import * as THREE from "three";
 import { asset } from "../lib/asset";
 
 export function Avatar(props) {
-  const { animation, wireframe, pose = {}, lookRef, calm = { weight: 0, time: 0, speed: 1 } } = props;
+  const { animation, wireframe, pose = {}, calm = { weight: 0, time: 0, speed: 1 } } = props;
   const group = useRef();
   const { nodes, materials } = useGLTF(asset("models/avatar1.glb"));
 
@@ -50,8 +50,6 @@ export function Avatar(props) {
     return rest;
   }, [nodes]);
 
-  const look = useRef(0);
-  const tmp = useMemo(() => ({ a: new THREE.Vector3(), b: new THREE.Vector3() }), []);
 
   useFrame((state, delta) => {
     // Small per-bone rotations on top of the animation (e.g. lean in and lower the arms so the
@@ -68,25 +66,6 @@ export function Avatar(props) {
         bone.rotateX(x * lean.current);
         bone.rotateY(y * lean.current);
         bone.rotateZ(z * lean.current);
-      }
-    }
-
-    // Turn the head toward the camera (the visitor) when asked, split between neck and head
-    look.current = THREE.MathUtils.damp(look.current, lookRef?.current ?? 0, 3, delta);
-    if (look.current > 0.001 && nodes.Head && nodes.Neck) {
-      const toCamera = group.current.worldToLocal(tmp.a.copy(state.camera.position));
-      const head = group.current.worldToLocal(nodes.Head.getWorldPosition(tmp.b));
-      toCamera.sub(head);
-      const yaw = THREE.MathUtils.clamp(Math.atan2(toCamera.x, toCamera.z), -1.1, 1.1);
-      const pitch = THREE.MathUtils.clamp(Math.atan2(toCamera.y, Math.hypot(toCamera.x, toCamera.z)), -0.4, 0.5);
-      for (const [name, share] of [["Neck", 0.4], ["Head", 0.6]]) {
-        const bone = nodes[name];
-        if (!animated.has(name)) {
-          restPose[name] ??= bone.quaternion.clone();
-          bone.quaternion.copy(restPose[name]);
-        }
-        bone.rotateY(yaw * share * look.current);
-        bone.rotateX(-pitch * share * look.current);
       }
     }
   });

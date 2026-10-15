@@ -88,7 +88,7 @@ export const SEAT = {
   rotationY: Math.PI + 0.19,
   scale: 1.05 / 0.44,
   // Measured against the desk (top y 1.9), seat (y 1.6) and keyboard (x -0.3..0.5, z -3.75..-3.45):
-  // lean in, lower the arms onto the keys, thighs under the desk, feet on the floor.
+  // lean in, lower the arms onto the keys, thighs under the desk, feet flat on the floor.
   pose: {
     Spine: [0.15, 0, 0],
     Spine1: [0.15, 0, 0],
@@ -97,10 +97,13 @@ export const SEAT = {
     RightArm: [0.2, 0, 0],
     LeftForeArm: [0.2, 0, 0],
     RightForeArm: [0.2, 0, 0],
-    LeftUpLeg: [-0.55, 0, 0],
-    RightUpLeg: [-0.55, 0, 0],
-    LeftLeg: [0.35, 0, 0],
-    RightLeg: [0.35, 0, 0],
+    LeftUpLeg: [-0.33, 0, 0],
+    RightUpLeg: [-0.33, 0, 0],
+    LeftLeg: [0.42, 0, 0],
+    RightLeg: [0.42, 0, 0],
+    // Flatten the feet: soles on the floor (toe joints ~0.06 above it), not toes dug in
+    LeftFoot: [0.08, 0, 0],
+    RightFoot: [0.08, 0, 0],
   },
   // 70% of a calm frame of the typing clip (t = 4 s), 30% of the live clip: hands stay on the keys
   calm: { weight: 0.7, time: 4, speed: 1 },
@@ -132,7 +135,7 @@ const AvatarLights = ({ nightRef }) => {
   );
 };
 
-export const Scene = ({ progressRef, nightRef, screenRef, pointerRef, lookRef, onAction }) => (
+export const Scene = ({ progressRef, nightRef, screenRef, pointerRef, onAction }) => (
   <>
     <AvatarLights nightRef={nightRef} />
     <CameraRig progressRef={progressRef} pointerRef={pointerRef} />
@@ -144,7 +147,7 @@ export const Scene = ({ progressRef, nightRef, screenRef, pointerRef, lookRef, o
       scale={SEAT.scale}
       {...roomInteractive("That's me · say hello", "contact", onAction)}
     >
-      <Avatar animation="Typing" wireframe={false} pose={SEAT.pose} calm={SEAT.calm} lookRef={lookRef} />
+      <Avatar animation="Typing" wireframe={false} pose={SEAT.pose} calm={SEAT.calm} />
     </group>
   </>
 );
