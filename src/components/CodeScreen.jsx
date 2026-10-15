@@ -166,22 +166,3 @@ export const CodeScreen = (props) => {
     </mesh>
   );
 };
-
-// A desk monitor (stand, bezel and the live code screen). Its origin sits on the desk top.
-export const DeskMonitor = (props) => (
-  <group {...props}>
-    <mesh position={[0, 0.005, -0.03]}>
-      <boxGeometry args={[0.22, 0.012, 0.15]} />
-      <meshStandardMaterial color="#18181b" />
-    </mesh>
-    <mesh position={[0, 0.17, -0.05]}>
-      <boxGeometry args={[0.045, 0.33, 0.03]} />
-      <meshStandardMaterial color="#18181b" />
-    </mesh>
-    <mesh position={[0, 0.42, 0]}>
-      <boxGeometry args={[0.76, 0.48, 0.03]} />
-      <meshStandardMaterial color="#09090b" />
-    </mesh>
-    <CodeScreen position={[0, 0.42, 0.0155]} scale={0.44} />
-  </group>
-);

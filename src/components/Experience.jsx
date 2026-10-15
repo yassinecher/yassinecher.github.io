@@ -2,10 +2,12 @@ import { useScroll } from "@react-three/drei";
 import { useFrame, useThree } from "@react-three/fiber";
 import { animate, useMotionValue } from "framer-motion";
 import { motion } from "framer-motion-3d";
+import { useSetAtom } from "jotai";
 import { useEffect, useRef, useState } from "react";
 import { SECTIONS, framerMotionConfig } from "../config";
+import { activeSectionAtom } from "../state";
 import { Avatar } from "./Avatar";
-import { DeskMonitor } from "./CodeScreen";
+import { DeskSetup } from "./DeskSetup";
 import { Projects } from "./Projects";
 import { Room as Office } from "./Room";
 
@@ -18,12 +20,16 @@ export const Experience = (props) => {
 
   const isMobile = window.innerWidth < 768;
   const responsiveRatio = viewport.width / 12;
-  const officeScaleRatio = Math.max(0.5, Math.min(0.9 * responsiveRatio, 0.9));
+  const officeScaleRatio = Math.max(0.5, Math.min(0.9 * responsiveRatio, 0.82));
 
   const [section, setSection] = useState(0);
+  const setActiveSection = useSetAtom(activeSectionAtom);
+  useEffect(() => setActiveSection(section), [section]);
+  const progressBar = useRef(null);
 
-  const cameraPositionX = useMotionValue();
-  const cameraLookAtX = useMotionValue();
+  // Start from real numbers: the first frames can render before the animations below begin.
+  const cameraPositionX = useMotionValue(1);
+  const cameraLookAtX = useMotionValue(0);
 
   useEffect(() => {
     animate(cameraPositionX, menuOpened ? -2 : section === 0 ? 1 : 0, {
@@ -57,6 +63,10 @@ export const Experience = (props) => {
       setSection(curSection);
     }
 
+    // Scroll progress bar in the header (plain DOM write: no React render per frame)
+    progressBar.current ??= document.getElementById("scroll-progress");
+    if (progressBar.current) progressBar.current.style.transform = `scaleX(${data.offset})`;
+
     state.camera.position.x = cameraPositionX.get();
     state.camera.lookAt(cameraLookAtX.get(), 0, 0);
 
@@ -80,7 +90,7 @@ export const Experience = (props) => {
         variants={{
           // About: seated at the desk
           0: {
-            rotateY: 30,
+            rotateY: 30.33,
             scaleX: officeScaleRatio,
             scaleY: officeScaleRatio,
             scaleZ: officeScaleRatio,
@@ -100,7 +110,7 @@ export const Experience = (props) => {
           // Experience: on the right, turned toward the timeline
           2: {
             y: -viewport.height * 2 + 0.5,
-            x: isMobile ? 2.2 : 3.4,
+            x: isMobile ? 2.2 : 3.9,
             z: isMobile ? -2 : 2,
             rotateX: 0,
             rotateY: -Math.PI / 3,
@@ -124,7 +134,7 @@ export const Experience = (props) => {
           // Contact: to the right of the form
           4: {
             y: -viewport.height * 4 + 1,
-            x: isMobile ? 1.4 : 2.3,
+            x: isMobile ? 2.6 : 2.3,
             z: isMobile ? -2 : 4.5,
             rotateX: 0,
             rotateY: -Math.PI / 4,
@@ -135,12 +145,12 @@ export const Experience = (props) => {
           },
         }}
       >
-        <Avatar animation={characterAnimation} wireframe={false} />
+        <Avatar animation={characterAnimation} wireframe={false} typingLean={0.25} />
       </motion.group>
       <ambientLight intensity={1} />
       <motion.group
         position={[
-          isMobile ? 1 : 1.5 * officeScaleRatio,
+          isMobile ? 1 : 1.95 * officeScaleRatio,
           isMobile ? -viewport.height / 6 : 2,
           3,
         ]}
@@ -154,12 +164,12 @@ export const Experience = (props) => {
         }}
       >
         <Office section={section} />
-        {/* On the desk in front of the seated avatar, turned partly toward the camera so the code reads */}
-        <DeskMonitor position={[-1.08, 0.55, 0.06]} rotation-y={1.37} scale={1.45} />
+        <DeskSetup />
         <group
           ref={characterContainerAboutRef}
           name="CharacterSpot"
-          position={[0.07, 0.16, -0.57]}
+          // Centred on the chair seat, close enough for the hands to reach the keyboard
+          position={[0.088, 0.16, -0.254]}
           rotation={[-Math.PI, 0.42, -Math.PI]}
         ></group>
       </motion.group>

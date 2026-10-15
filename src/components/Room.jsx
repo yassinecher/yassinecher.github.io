@@ -9,7 +9,7 @@ export function Room(props) {
 
   const { nodes } = useGLTF(asset("models/Room.gltf"));
   
-  const texture = useTexture(asset("textures/bakedNight.jpg"));
+  const texture = useTexture(asset("textures/bakedDay.jpg"));
   const textureVSCode = useVideoTexture(asset("textures/vscode.mp4"));
   
   texture.flipY = false;

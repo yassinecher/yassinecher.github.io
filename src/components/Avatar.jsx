@@ -9,7 +9,7 @@ import * as THREE from "three";
 import { asset } from "../lib/asset";
 
 export function Avatar(props) {
-  const { animation, wireframe } = props;
+  const { animation, wireframe, typingLean = 0 } = props;
   const { headFollow, cursorFollow } = useControls({
     headFollow: false,
     cursorFollow: false,
@@ -34,7 +34,15 @@ export function Avatar(props) {
     group
   );
 
-  useFrame((state) => {
+  const lean = useRef(0);
+
+  useFrame((state, delta) => {
+    // Lean the upper body toward the desk while typing so the hands reach the keyboard.
+    // Runs after the animation mixer has posed the bones for this frame.
+    lean.current = THREE.MathUtils.damp(lean.current, animation === "Typing" ? typingLean : 0, 4, delta);
+    if (lean.current > 0.001) {
+      ["Spine", "Spine1", "Spine2"].forEach((name) => nodes[name]?.rotateX(lean.current / 3));
+    }
     if (headFollow) {
       group.current.getObjectByName("Head").lookAt(state.camera.position);
     }

@@ -1,18 +1,18 @@
 import { Scroll, ScrollControls } from "@react-three/drei";
 import { Canvas } from "@react-three/fiber";
 import { MotionConfig } from "framer-motion";
-import { useAtom } from "jotai";
+import { useAtom, useAtomValue } from "jotai";
 import { Leva } from "leva";
 import { Suspense, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Background } from "../components/Background";
+import { Backdrop } from "../components/Backdrop";
 import { Experience } from "../components/Experience";
 import { Interface } from "../components/Interface";
 import { LoadingScreen } from "../components/LoadingScreen";
 import { Menu } from "../components/Menu";
 import { ScrollManager } from "../components/ScrollManager";
 import { SECTIONS, framerMotionConfig } from "../config";
-import { homeSectionAtom } from "../state";
+import { activeSectionAtom, homeSectionAtom } from "../state";
 
 export const Home = () => {
   const [nav, setNav] = useAtom(homeSectionAtom);
@@ -26,6 +26,7 @@ export const Home = () => {
     setNav({ index: 3, at: Date.now() });
     navigate(`/projects/${slug}`);
   };
+  const activeSection = useAtomValue(activeSectionAtom);
   const [started, setStarted] = useState(false);
   const [menuOpened, setMenuOpened] = useState(false);
 
@@ -35,18 +36,17 @@ export const Home = () => {
 
   return (
     <>
+      <Backdrop section={activeSection} />
       <LoadingScreen started={started} setStarted={setStarted} />
       <MotionConfig
         transition={{
           ...framerMotionConfig,
         }}
       >
-        <Canvas shadows camera={{ position: [0, 3, 10], fov: 42 }}>
-          <color attach="background" args={["#101010"]} />
-          <ScrollControls pages={SECTIONS.length} damping={0.1}>
+        {/* Transparent canvas: the animated backdrop shows through */}
+        <Canvas shadows camera={{ position: [0, 3, 10], fov: 42 }} gl={{ alpha: true }}>
+          <ScrollControls pages={SECTIONS.length} damping={0.2}>
             <ScrollManager section={section} request={nav.at} onSectionChange={setSection} />
-            {/* Outside <Scroll> so the backdrop stays put while the sections move */}
-            <Background />
             <Scroll>
               <Suspense>
                 {started && (

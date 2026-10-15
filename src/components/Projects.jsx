@@ -16,10 +16,10 @@ const Project = (props) => {
   const { project, highlighted, onOpen } = props;
 
   const background = useRef();
-  const bgOpacity = useMotionValue(0.4);
+  const bgOpacity = useMotionValue(0.6);
 
   useEffect(() => {
-    animate(bgOpacity, highlighted ? 0.7 : 0.4);
+    animate(bgOpacity, highlighted ? 0.95 : 0.6);
   }, [highlighted]);
 
   useFrame(() => {
@@ -35,7 +35,7 @@ const Project = (props) => {
     <group position-y={-1.8} scale={0.85} {...props}>
       <mesh position-z={-0.002} ref={background} onClick={open}>
         <planeGeometry args={[6.2, 7.6]} />
-        <meshBasicMaterial color="black" transparent opacity={0.4} />
+        <meshBasicMaterial color="white" transparent opacity={0.6} />
       </mesh>
       <Image
         scale={[6.2, 6, 0.001]}
@@ -49,6 +49,7 @@ const Project = (props) => {
         anchorX="left"
         anchorY="top"
         fontSize={0.34}
+        color="#17171c"
         position={[-2.8, -2.2, 0]}
       >
         {project.title.toUpperCase()}
@@ -58,21 +59,21 @@ const Project = (props) => {
         anchorX="left"
         anchorY="top"
         fontSize={0.2}
-        color="#a1a1aa"
+        color="#5c5c68"
         position={[-2.8, -2.65, 0]}
       >
         {project.stack.slice(0, 4).join("  ·  ")}
       </Text>
       <mesh position={[-1.75, -3.25, 0]} onClick={open}>
         <planeGeometry args={[2.1, 0.4]} />
-        <meshBasicMaterial color="#f59e0b" />
+        <meshBasicMaterial color="#17171c" />
       </mesh>
       <Text
         position={[-1.75, -3.25, 0.001]}
         fontSize={0.19}
         anchorX="center"
         anchorY="middle"
-        color="black"
+        color="white"
         onClick={open}
       >
         VIEW CASE STUDY

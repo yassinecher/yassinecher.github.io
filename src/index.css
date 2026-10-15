@@ -1,6 +1,19 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", system-ui, sans-serif;
+  --font-display: "Space Grotesk", "Inter", sans-serif;
+  --font-mono: "JetBrains Mono", Consolas, monospace;
+
+  /* Light palette: warm paper background, ink text, amber accent */
+  --color-paper: #f6f4ef;
+  --color-card: #ffffff;
+  --color-ink: #17171c;
+  --color-muted: #5c5c68;
+  --color-line: #e3dfd5;
+  --color-accent: #f59e0b;
+  --color-accent-strong: #b45309;
+}
 
 #root {
   width: 100vw;
@@ -9,5 +22,35 @@
 
 body {
   margin: 0;
-  background: #0b0b0d;
+  background: var(--color-paper);
+  color: var(--color-ink);
+}
+
+/* Animated colour fields (components/Backdrop.jsx) */
+.blob {
+  position: absolute;
+  width: 55vmax;
+  height: 55vmax;
+  border-radius: 9999px;
+  filter: blur(90px);
+  opacity: 0.45;
+  transition: background-color 1.2s ease, background 1.2s ease;
+  will-change: transform;
+}
+.blob-1 { top: -18vmax; left: -12vmax; animation: drift-1 22s ease-in-out infinite alternate; }
+.blob-2 { top: 10vmax; right: -20vmax; animation: drift-2 26s ease-in-out infinite alternate; }
+.blob-3 { bottom: -25vmax; left: 20vmax; animation: drift-3 30s ease-in-out infinite alternate; }
+
+@keyframes drift-1 { to { transform: translate(14vmax, 10vmax) scale(1.15); } }
+@keyframes drift-2 { to { transform: translate(-12vmax, 12vmax) scale(0.9); } }
+@keyframes drift-3 { to { transform: translate(-10vmax, -14vmax) scale(1.1); } }
+
+.dot-grid {
+  background-image: radial-gradient(rgba(23, 23, 28, 0.09) 1px, transparent 1px);
+  background-size: 22px 22px;
+  mask-image: radial-gradient(ellipse at center, black 30%, transparent 75%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .blob { animation: none; }
 }
