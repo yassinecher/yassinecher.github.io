@@ -1,6 +1,7 @@
 import { useSetAtom } from "jotai";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
+import { isMuted, setMuted, subscribeSound } from "../../lib/sound";
 import { useLights } from "../../lib/theme";
 import { homeSectionAtom } from "../../state";
 
@@ -31,6 +32,29 @@ const useTunisTime = () => {
     return () => clearInterval(id);
   }, []);
   return time;
+};
+
+// Sound on or off for the room (the guitar, the TV)
+const SoundToggle = () => {
+  const muted = useSyncExternalStore(subscribeSound, isMuted, () => false);
+  return (
+    <button
+      onClick={() => setMuted(!muted)}
+      aria-pressed={muted}
+      aria-label={muted ? "Turn the sound on" : "Turn the sound off"}
+      title={muted ? "Sound off" : "Sound on"}
+      className="flex h-[30px] w-[30px] items-center justify-center rounded-full border border-line bg-card/70 text-muted backdrop-blur transition-colors hover:text-ink"
+    >
+      <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <path d="M11 5 6 9H2v6h4l5 4V5z" />
+        {muted ? (
+          <path d="m22 9-6 6m0-6 6 6" />
+        ) : (
+          <path d="M15.54 8.46a5 5 0 0 1 0 7.07M19.07 4.93a10 10 0 0 1 0 14.14" />
+        )}
+      </svg>
+    </button>
+  );
 };
 
 const LightSwitch = () => {
@@ -115,7 +139,10 @@ export const SiteNav = ({ active = -1, onJump }) => {
           >
             All projects
           </Link>
-          <LightSwitch />
+          <div className="flex items-center gap-2">
+            <SoundToggle />
+            <LightSwitch />
+          </div>
         </nav>
 
         <button
@@ -145,7 +172,10 @@ export const SiteNav = ({ active = -1, onJump }) => {
             <Link to="/projects" className="font-medium underline underline-offset-4">
               All projects
             </Link>
-            <LightSwitch />
+            <div className="flex items-center gap-2">
+              <SoundToggle />
+              <LightSwitch />
+            </div>
           </div>
         </div>
       )}

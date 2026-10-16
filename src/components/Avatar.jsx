@@ -17,11 +17,13 @@ const LOWER_BODY = ["Hips", "LeftUpLeg", "LeftLeg", "LeftFoot", "LeftToeBase", "
 // does most of it, see SeatRig), which part of him leads it, and how far that bone can twist on
 // its own (radians). The head takes whatever is left within its range, so once the body has come
 // round the face is square on the camera, and while it hasn't the head stops where a neck would.
+// The spine only turns (a torso doesn't bend sideways to look at someone); the neck and head
+// also tip up or down.
 const LOOK_CHAIN = [
-  ["Spine1", 0.2, "body", 0.3],
-  ["Spine2", 0.25, "body", 0.35],
-  ["Neck", 0.4, "head", 0.55],
-  ["Head", 1, "head", 0.7],
+  ["Spine1", 0.2, "body", 0.3, 0],
+  ["Spine2", 0.25, "body", 0.35, 0],
+  ["Neck", 0.4, "head", 0.55, 1],
+  ["Head", 1, "head", 0.7, 1],
 ];
 const UP = new THREE.Vector3(0, 1, 0);
 // The face looks along the head bone's own +z (measured: the eyes sit along +z and +y)
@@ -52,7 +54,7 @@ const TYPING_ORIENT = { inward: 0.15, down: 0.25, roll: 0.25 };
 const REST = { along: 0.5, up: 0.26, inward: 0.15, curl: 0.35, back: 0.6, out: 0.25, drop: 0.03 };
 // A sip of coffee, in seconds: lean over and take the mug by its handle, bring it up, drink,
 // put it back, back to the keys
-const SIP = { reach: [0, 1], take: 1.1, lift: [1.1, 2.1], drink: [2.1, 3.3], lower: [3.3, 4.3], release: 4.4, back: [4.4, 5.4], length: 5.5 };
+const SIP = { reach: [0, 1.15], take: 1.2, lift: [1.2, 2.4], drink: [2.4, 3.6], lower: [3.6, 4.8], release: 4.9, back: [4.9, 6], length: 6.1 };
 const MUG_HEIGHT = 0.26;
 // How his left hand holds it (from the measured hand axes: fingers +y, palm +z, thumb toward
 // -x): palm on the mug's near side, fingers wrapping round its left, thumb up. The mug's body
@@ -152,6 +154,7 @@ export function Avatar(props) {
       matrix: new THREE.Matrix4(),
       turn: new THREE.Quaternion(),
       pose: new THREE.Quaternion(),
+      arc: new THREE.Vector3(),
       inverse: new THREE.Quaternion(),
       handQ: new THREE.Quaternion(),
       near: new THREE.Vector3(),
@@ -203,7 +206,7 @@ export function Avatar(props) {
   // Turns `bone` so the face swings `share` of the way toward `target`: around the vertical first,
   // then up or down, so the head stays upright instead of rolling. World space: the room is level
   // (his own root group is tipped by the model's export, so it can't be the reference).
-  const turnToward = (bone, target, share, limit = Math.PI) => {
+  const turnToward = (bone, target, share, limit = Math.PI, pitchShare = 1) => {
     const [headPos, face, want, axis] = tmp.v;
     const [turn, pitch, scratch] = tmp.q;
     nodes.Head.getWorldPosition(headPos);
@@ -214,7 +217,7 @@ export function Avatar(props) {
     const tilt = Math.asin(THREE.MathUtils.clamp(want.y, -1, 1)) - Math.asin(THREE.MathUtils.clamp(face.y, -1, 1));
     turn.setFromAxisAngle(UP, THREE.MathUtils.clamp(yaw * share, -limit, limit));
     axis.copy(face).applyQuaternion(turn).setY(0).normalize().cross(UP).normalize();
-    pitch.setFromAxisAngle(axis, THREE.MathUtils.clamp(tilt * share, -limit * 0.6, limit * 0.6));
+    pitch.setFromAxisAngle(axis, THREE.MathUtils.clamp(tilt * share * pitchShare, -limit * 0.6, limit * 0.6));
     turn.premultiply(pitch);
     // On top of the bone's current world rotation: local = parent^-1 * turn * world
     bone.getWorldQuaternion(scratch);
@@ -340,12 +343,13 @@ export function Avatar(props) {
         s.next = now + 45 + Math.random() * 40;
         cup.mug.position.copy(cup.mug.userData.rest);
         cup.mug.quaternion.identity();
+        cup.steamLevel = 1;
         if (cup.steam) cup.steam.position.set(0, 0, 0);
       }
       cup.active = s.start >= 0;
     }
     const tc = s.start >= 0 ? now - s.start : -1; // seconds into the coffee break
-    const between = (from, to) => (tc < 0 ? 0 : smoothstep(from, to, tc));
+    const between = (from, to) => (tc < 0 ? 0 : THREE.MathUtils.smootherstep(tc, from, to));
     const sipReach = tc < 0 ? 0 : between(...SIP.reach) * (1 - between(...SIP.back));
     const sipLift = tc < 0 ? 0 : between(...SIP.lift) * (1 - between(...SIP.lower));
     const sipDrink = tc < 0 ? 0 : between(...SIP.drink.map((x, i) => x + (i ? -0.3 : 0))) * (1 - between(SIP.drink[1] - 0.2, SIP.drink[1] + 0.2));
@@ -376,7 +380,13 @@ export function Avatar(props) {
     add(offsets, "Spine", -0.05 * r.pause);
     add(after, "Head", -0.07 * r.pause * (1 - lookHead));
 
-    if (attention > 0.001) add(offsets, "Spine", -0.12 * attention); // sit up a little
+    // Turned to you he sits up straight: none of the typing lean (with his hips only part way
+    // round, a forward lean reads as leaning to one side)
+    if (attention > 0.001) {
+      add(offsets, "Spine", -0.12 * attention);
+      add(offsets, "Spine1", -0.1 * attention);
+      add(offsets, "Spine2", -0.1 * attention);
+    }
     // Excited (a project picked): leans in toward the screen and gives it one sure nod
     if (w.excited > 0.001) {
       const e = w.excited;
@@ -476,9 +486,23 @@ export function Avatar(props) {
       bone.rotateZ(z);
     }
     // Then the turn toward the camera, and the head's own gestures on top of it
-    for (const [name, share, part, limit] of LOOK_CHAIN) {
+    for (const [name, share, part, limit, pitchShare] of LOOK_CHAIN) {
       const amount = part === "head" ? lookHead : lookBody;
-      if (amount > 0.001) turnToward(nodes[name], state.camera.position, share * amount, limit);
+      if (amount > 0.001) turnToward(nodes[name], state.camera.position, share * amount, limit, pitchShare);
+    }
+    // and keeps his head level as he looks at you (tilts he means, like the hello, come after)
+    if (lookHead > 0.001) {
+      const [face, up, want, have] = tmp.v;
+      const [roll, parent, world] = tmp.q;
+      nodes.Head.getWorldQuaternion(world);
+      face.copy(FACE).applyQuaternion(world);
+      up.set(0, 1, 0).applyQuaternion(world);
+      want.copy(UP).addScaledVector(face, -UP.dot(face)).normalize();
+      have.copy(up).addScaledVector(face, -up.dot(face)).normalize();
+      const angle = Math.atan2(face.dot(tmp.side.crossVectors(have, want)), have.dot(want));
+      roll.setFromAxisAngle(face, angle * lookHead);
+      nodes.Head.parent.getWorldQuaternion(parent).invert();
+      nodes.Head.quaternion.copy(parent.multiply(roll).multiply(world));
     }
     if (glance > 0.001) {
       turnToward(nodes.Neck, state.camera.position, 0.3 * glance);
@@ -556,6 +580,8 @@ export function Avatar(props) {
         // reaching for it (or letting go): the hand goes to the grip, palm forward, fingers to his
         // left, thumb up, and the mug sits on the desk
         place("Left", grab, elbowPole("Left", 0.2, 0.55), sipReach);
+        // the hand opens on the way to the mug, closes round it, and opens again letting go
+        shapeHand("Left", "open", sipReach);
         orientHand("Left", tmp.fingersDir.copy(right).negate(), tmp.palmDir.copy(forward), sipReach);
         sipTmp.held = false;
         cup.mug.position.copy(rest);
@@ -588,17 +614,26 @@ export function Avatar(props) {
         sipTmp.near.copy(face).negate().applyQuaternion(sipTmp.inverse.copy(sipTmp.pose).invert()).setY(0).normalize();
         sipTmp.offset.copy(sipTmp.near).multiplyScalar(MUG_RADIUS).setY(MUG_HEIGHT).applyQuaternion(sipTmp.pose);
         hold.copy(mouth).sub(sipTmp.offset);
-        cup.mug.position.copy(rest).lerp(hold, sipLift);
+        // up first, then in toward his mouth: a curve, not a straight line through the air
+        const arc = sipTmp.arc.copy(rest).lerp(hold, 0.5).addScaledVector(UP, 0.32).addScaledVector(face, -0.12);
+        const a = (1 - sipLift) * (1 - sipLift);
+        const b = 2 * (1 - sipLift) * sipLift;
+        const c = sipLift * sipLift;
+        cup.mug.position.set(0, 0, 0).addScaledVector(rest, a).addScaledVector(arc, b).addScaledVector(hold, c);
         cup.mug.quaternion.copy(sipTmp.pose);
         // the hand: wherever the grip puts it
         cup.mug.updateWorldMatrix(true, false);
         sipTmp.matrix.copy(cup.mug.matrixWorld).multiply(tmp.matrix.copy(sipTmp.inHand).invert());
         sipTmp.matrix.decompose(tmp.target, sipTmp.handQ, tmp.v[3]);
-        place("Left", tmp.target, elbowPole("Left", 0.2, 0.55), 1);
+        // the elbow comes forward and out as the mug comes up, the way an arm drinks
+        place("Left", tmp.target, elbowPole("Left", THREE.MathUtils.lerp(0.2, -0.3, sipLift), THREE.MathUtils.lerp(0.55, 0.95, sipLift)), 1);
         hand.parent.getWorldQuaternion(tmp.q[1]).invert();
         hand.quaternion.copy(tmp.q[1].multiply(sipTmp.handQ));
       }
-      shapeHand("Left", "grip", sipReach);
+      const closed = between(SIP.take - 0.35, SIP.take) * (1 - between(SIP.release, SIP.release + 0.3));
+      shapeHand("Left", "grip", sipReach * closed);
+      // no steam while it's in his hand; it comes back a little after the mug is down
+      cup.steamLevel = 1 - between(SIP.take, SIP.take + 0.4) * (1 - between(SIP.release + 0.6, SIP.release + 1.6));
       if (cup.steam) cup.steam.position.copy(cup.mug.position).sub(rest);
     }
     // The wave: right hand up beside his face, open, palm to you, rocking from the wrist

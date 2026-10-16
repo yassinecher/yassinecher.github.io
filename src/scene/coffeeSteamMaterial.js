@@ -45,6 +45,7 @@ export const createCoffeeSteamMaterial = () =>
       uTimeFrequency: { value: 0.0004 },
       uUvFrequency: { value: new THREE.Vector2(4, 5) },
       uColor: { value: new THREE.Color("#d2958a") },
+      uFade: { value: 1 },
     },
     vertexShader: /* glsl */ `
       uniform float uTime;
@@ -65,6 +66,7 @@ export const createCoffeeSteamMaterial = () =>
       uniform float uTimeFrequency;
       uniform vec2 uUvFrequency;
       uniform vec3 uColor;
+      uniform float uFade;
       varying vec2 vUv;
       ${perlin2d}
       void main() {
@@ -72,7 +74,7 @@ export const createCoffeeSteamMaterial = () =>
         uv.y -= uTime * uTimeFrequency;
         float borderAlpha = min(vUv.x * 4.0, (1.0 - vUv.x) * 4.0) * (1.0 - vUv.y);
         float alpha = min(perlin2d(uv) * borderAlpha * 0.6, 1.0);
-        gl_FragColor = vec4(uColor, alpha);
+        gl_FragColor = vec4(uColor, alpha * uFade);
       }
     `,
   });

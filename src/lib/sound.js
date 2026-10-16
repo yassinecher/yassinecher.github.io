@@ -2,9 +2,32 @@
 // switching off and on. Quiet on purpose. Browsers only allow audio after the visitor has
 // clicked or pressed a key somewhere, so until then these stay silent.
 
+// The visitor can switch the sounds off (the speaker in the navbar); remembered on this device
+let muted = false;
+try {
+  muted = localStorage.getItem("sound") === "off";
+} catch {
+  // storage blocked: sounds stay on for this visit
+}
+const listeners = new Set();
+export const isMuted = () => muted;
+export const subscribeSound = (listener) => {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+};
+export const setMuted = (value) => {
+  muted = value;
+  try {
+    localStorage.setItem("sound", value ? "off" : "on");
+  } catch {
+    // not remembered, still muted for now
+  }
+  listeners.forEach((listener) => listener());
+};
+
 let context = null;
 const audio = () => {
-  if (typeof window === "undefined" || !window.AudioContext) return null;
+  if (muted || typeof window === "undefined" || !window.AudioContext) return null;
   context ??= new AudioContext();
   if (context.state === "suspended") context.resume().catch(() => {});
   return context.state === "running" ? context : null;

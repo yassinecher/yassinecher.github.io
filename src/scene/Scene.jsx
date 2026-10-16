@@ -104,7 +104,8 @@ export const SEAT = {
   // a slight lean, fingertips resting on the keys (they only dip in on a key press), head up
   // toward the monitor, thighs under the desk, feet flat on the floor.
   pose: {
-    Spine: [0.1, 0, 0],
+    // (the calm frame of the clip leans him ~6 degrees to his left; this sits him up straight)
+    Spine: [0.1, 0, 0.12],
     Spine1: [0.1, 0, 0],
     Spine2: [0.1, 0, 0],
     LeftArm: [0.16, 0, 0],
@@ -235,8 +236,9 @@ export const Scene = ({ progressRef, nightRef, screenRef, pointerRef, attentionR
   const colliderRef = useRef();
   // Whether the TV is on, and its glow (Room switches it; the avatar's lights follow)
   const tvRef = useRef({ on: true, level: 1 });
-  // He's busy: hovering annoys him, a click (a poke) gets you shooed away
-  const hover = roomInteractive("That's me · busy coding", "poke", onAction);
+  // At work he's busy (hovering gets a side-eye, a click a "one moment"); turned to you in
+  // contact, he's all yours
+  const hover = roomInteractive(() => (attentionRef.current.hold ? "That's me · say hi" : "That's me · busy coding"), "poke", onAction);
   return (
     <>
       <AvatarLights nightRef={nightRef} tvRef={tvRef} />

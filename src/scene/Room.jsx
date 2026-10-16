@@ -75,7 +75,7 @@ export const roomInteractive = (label, action, onAction) => ({
     document.body.style.cursor = "pointer";
     const tip = document.getElementById("room-tip");
     if (tip) {
-      tip.textContent = label;
+      tip.textContent = typeof label === "function" ? label() : label;
       tip.dataset.show = "true";
     }
   },
@@ -90,7 +90,7 @@ export const roomInteractive = (label, action, onAction) => ({
     if (e.nativeEvent?.pointerType === "touch") {
       const tip = document.getElementById("room-tip");
       if (tip) {
-        tip.textContent = label;
+        tip.textContent = typeof label === "function" ? label() : label;
         tip.style.transform = `translate(${e.nativeEvent.clientX - 60}px, ${e.nativeEvent.clientY + 24}px)`;
         tip.dataset.show = "true";
         clearTimeout(tip.hideTimer);
@@ -259,6 +259,8 @@ export const Room = ({ nightRef, screenRef, onAction, swivelRef, tvRef, coffeeRe
     u.uLightPcStrength.value = u.uNightMix.value * NIGHT_LIGHTS.pc;
 
     steamMaterial.uniforms.uTime.value = time * 1000;
+    steamMaterial.uniforms.uFade.value = damp(steamMaterial.uniforms.uFade.value, coffeeRef?.current.steamLevel ?? 1, 4, dt);
+    steam.scene.visible = steamMaterial.uniforms.uFade.value > 0.01;
 
     ledItems.forEach((mesh, index) => {
       mesh.material.opacity = Math.sin(time * 2 - index * 0.5) * 0.5 + 0.5;

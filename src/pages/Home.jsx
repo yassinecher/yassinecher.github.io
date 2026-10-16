@@ -30,6 +30,8 @@ const MOOD_LINES = {
 const ANNOYED_LINES = ["just a sec, compiling…", "after this commit…", "deep in a bug, one sec"];
 // Arriving at contact: the first time, then coming back
 const GREETINGS = ["hi, I'm Yassine!", "hey, welcome back", "good to see you again"];
+// Clicking him while he's facing you: he's all yours, never "one moment"
+const FRIENDLY = ["hey! I'm listening", "yes? go ahead", "I'm all yours", "ask me anything"];
 const STARTLED_LINES = ["one moment!", "be right with you", "just finishing this"];
 // Showing a project: something true about it, from the project data
 const excitedLine = (project, count) => {
@@ -636,9 +638,8 @@ export const Home = () => {
     if (coffeeRef.current.active) return; // mid-sip: leave him be
     // On the way down to contact, and in it, he's turning to welcome you, not to be bothered
     if (progressRef.current > 3.5) return;
-    // Reading your message, he's busy too; otherwise in contact he's all yours
-    if (busy && m.name === "reading") return feel("annoyed", 2000, { line: "one sec, reading this" });
-    if (attentionRef.current.hold) return;
+    // In contact he's yours (or reading your message): no "busy" faces there
+    if (attentionRef.current.hold || (busy && m.name === "reading")) return;
     if (busy && m.name !== "annoyed" && m.name !== "excited") return;
     if (!busy || m.name !== "annoyed") pokes.current.hover++;
     feel("annoyed", 2400, { line: ANNOYED_LINES[pokes.current.hover % ANNOYED_LINES.length] });
@@ -646,6 +647,12 @@ export const Home = () => {
   const poke = () => {
     if (coffeeRef.current.active) return;
     const m = moodRef.current;
+    // Facing you already (contact, or turned to you as you write): a friendly hello, not "wait"
+    const facing = attentionRef.current.hold || (performance.now() < m.until && ["interested", "greeting", "love", "reading"].includes(m.name));
+    if (facing) {
+      feel("greeting", 2600, { look: true, line: FRIENDLY[pokes.current.click++ % FRIENDLY.length] });
+      return;
+    }
     if (performance.now() < m.until && m.name === "startled") return;
     pokes.current.click++;
     // Out of the way of his face while he answers (it comes back when the pointer does)
