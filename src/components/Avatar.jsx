@@ -59,6 +59,9 @@ const MUG_HEIGHT = 0.26;
 // radius is 0.11; the palm sits that plus the hand's thickness from its axis, and the palm's
 // centre is this far from the wrist along the fingers.
 const MUG_GRIP = { gap: 0.155, palm: 0.24, height: 0.08 };
+// His lips, in the head bone's own space (measured on the face mesh: below the nose, in front)
+const LIPS = new THREE.Vector3(0, 0.06, 0.34);
+const MUG_RADIUS = 0.11;
 const HAND_SHAPES = {
   // resting on his thighs: loose, gently bent
   relaxed: { Thumb: [0.1, 0.15, 0.1], Index: [0.15, 0.2, 0.12], Middle: [0.2, 0.25, 0.15], Ring: [0.25, 0.3, 0.15], Pinky: [0.3, 0.3, 0.15] },
@@ -541,10 +544,13 @@ export function Avatar(props) {
         .addScaledVector(UP, MUG_GRIP.height)
         .addScaledVector(forward, -MUG_GRIP.gap)
         .addScaledVector(right, MUG_GRIP.palm);
-      // where it drinks: the rim at his lips, just in front of his face
-      nodes.Head.getWorldPosition(mouth);
-      mouth.addScaledVector(forward, 0.2).addScaledVector(UP, 0.02);
-      hold.copy(mouth).sub(tmp.v[1].copy(rest).add(tmp.v[2].set(0, MUG_HEIGHT, 0))).add(grab); // wrist when the rim is at his lips
+      // where it drinks: the near edge of the rim at his lips (the top of the mug one radius in
+      // front of them)
+      nodes.Head.updateWorldMatrix(true, false);
+      nodes.Head.localToWorld(mouth.copy(LIPS));
+      const face = tmp.v[1].copy(FACE).applyQuaternion(nodes.Head.getWorldQuaternion(tmp.q[0])).setY(0).normalize();
+      mouth.addScaledVector(face, MUG_RADIUS + 0.01);
+      hold.copy(mouth).sub(tmp.v[2].copy(rest).addScaledVector(UP, MUG_HEIGHT)).add(grab); // wrist when the rim is at his lips
       tmp.target.copy(grab).lerp(hold, sipLift);
       place("Left", tmp.target, elbowPole("Left", 0.2, 0.55), sipReach);
       // the hand keeps that grip (palm forward, fingers to his left, thumb up) and turns at the
