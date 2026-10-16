@@ -54,13 +54,16 @@ const REST = { along: 0.5, up: 0.26, inward: 0.15, curl: 0.35, back: 0.6, out: 0
 // put it back, back to the keys
 const SIP = { reach: [0, 1], take: 1.1, lift: [1.1, 2.1], drink: [2.1, 3.3], lower: [3.3, 4.3], release: 4.4, back: [4.4, 5.4], length: 5.5 };
 const MUG_HEIGHT = 0.26;
-// The mug's handle points along +x (measured), 0.17 from its axis, halfway up
-const MUG_HANDLE = new THREE.Vector3(0.17, 0.13, 0);
+// How his left hand holds it (from the measured hand axes: fingers +y, palm +z, thumb toward
+// -x): palm on the mug's near side, fingers wrapping round its left, thumb up. The mug's body
+// radius is 0.11; the palm sits that plus the hand's thickness from its axis, and the palm's
+// centre is this far from the wrist along the fingers.
+const MUG_GRIP = { gap: 0.155, palm: 0.24, height: 0.08 };
 const HAND_SHAPES = {
   // resting on his thighs: loose, gently bent
   relaxed: { Thumb: [0.1, 0.15, 0.1], Index: [0.15, 0.2, 0.12], Middle: [0.2, 0.25, 0.15], Ring: [0.25, 0.3, 0.15], Pinky: [0.3, 0.3, 0.15] },
-  // holding a mug by its handle: fingers hooked through, thumb resting on top
-  grip: { Thumb: [0.2, 0.25, 0.2], Index: [0.9, 1.1, 0.7], Middle: [0.95, 1.15, 0.7], Ring: [1.05, 1.15, 0.7], Pinky: [1.1, 1.1, 0.7] },
+  // holding a mug round its body: fingers wrapped round the far side, thumb on the near one
+  grip: { Thumb: [0, 0.05, 0], Index: [0.55, 0.7, 0.5], Middle: [0.6, 0.75, 0.5], Ring: [0.5, 0.6, 0.4], Pinky: [0.4, 0.5, 0.35] },
   // waving hello: open hand, fingers together and straight
   open: { Thumb: [0.05, 0.05, 0.05], Index: [0.02, 0.02, 0.02], Middle: [0.02, 0.02, 0.02], Ring: [0.04, 0.04, 0.03], Pinky: [0.06, 0.05, 0.04] },
   // "one moment": index finger up, the others folded in
@@ -531,20 +534,24 @@ export function Avatar(props) {
         bone.quaternion.copy(parent.multiply(turn).multiply(world));
       }
       turnToward(nodes.Head, rest, 0.55 * sipReach * (1 - sipLift));
-      // where the wrist takes the mug: just outside its handle (the side his hand comes from)
+      // where the wrist takes the mug: palm against its near side, fingers round to the left
       const { grab, mouth, hold } = sipTmp;
-      grab.copy(rest).add(MUG_HANDLE).addScaledVector(tmp.v[1].set(1, 0, 0), 0.09).addScaledVector(UP, -0.03);
-      // where it drinks: the rim at his lips, a little in front of his face
+      grab
+        .copy(rest)
+        .addScaledVector(UP, MUG_GRIP.height)
+        .addScaledVector(forward, -MUG_GRIP.gap)
+        .addScaledVector(right, MUG_GRIP.palm);
+      // where it drinks: the rim at his lips, just in front of his face
       nodes.Head.getWorldPosition(mouth);
-      mouth.addScaledVector(forward, 0.26).addScaledVector(UP, -0.16);
+      mouth.addScaledVector(forward, 0.2).addScaledVector(UP, 0.02);
       hold.copy(mouth).sub(tmp.v[1].copy(rest).add(tmp.v[2].set(0, MUG_HEIGHT, 0))).add(grab); // wrist when the rim is at his lips
       tmp.target.copy(grab).lerp(hold, sipLift);
       place("Left", tmp.target, elbowPole("Left", 0.2, 0.55), sipReach);
-      // the hand stays square to the handle (palm toward the mug, fingers forward) and tips the
-      // mug toward his mouth to drink
-      sipTmp.tilt.setFromAxisAngle(right, -0.85 * sipDrink);
-      tmp.palmDir.set(-1, 0, 0).applyQuaternion(sipTmp.tilt);
-      tmp.fingersDir.copy(forward).applyQuaternion(sipTmp.tilt);
+      // the hand keeps that grip (palm forward, fingers to his left, thumb up) and turns at the
+      // wrist to tip the mug toward his mouth
+      sipTmp.tilt.setFromAxisAngle(right, 0.8 * sipDrink); // top of the mug toward his face
+      tmp.palmDir.copy(forward).applyQuaternion(sipTmp.tilt);
+      tmp.fingersDir.copy(right).negate().applyQuaternion(sipTmp.tilt);
       orientHand("Left", tmp.fingersDir, tmp.palmDir, sipReach);
       shapeHand("Left", "grip", sipReach);
       // between taking it and putting it back, the mug moves with the hand as one piece
