@@ -185,7 +185,7 @@ const smoothDamp = (state, key, target, smoothTime, dt) => {
   state[`${key}V`] = (velocity - omega * temp) * decay;
   state[key] = target + (change + temp) * decay;
 };
-const SeatRig = ({ swivelRef, attentionRef, moodRef, colliderRef }) => {
+const SeatRig = ({ swivelRef, attentionRef, moodRef, colliderRef, coffeeRef }) => {
   const { camera, scene } = useThree();
   const bones = useRef(null);
   const v = useMemo(() => [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()], []);
@@ -210,7 +210,8 @@ const SeatRig = ({ swivelRef, attentionRef, moodRef, colliderRef }) => {
     const mood = moodRef.current;
     const current = now < mood.until ? mood.name : null;
     // Reading your message on his monitor wins over looking at you
-    const busy = current !== "reading" && (a.hold || now < a.until);
+    // (mid-sip he puts the mug down before turning round: see the coffee in Avatar)
+    const busy = current !== "reading" && !coffeeRef?.current?.active && (a.hold || now < a.until);
     const startled = current === "startled";
     for (const [part, [toYou, back]] of Object.entries(PARTS)) {
       smoothDamp(a, part, busy ? 1 : 0, busy ? (startled ? toYou * 0.4 : toYou) : back, dt);
@@ -276,7 +277,7 @@ export const Scene = ({ progressRef, nightRef, screenRef, pointerRef, attentionR
           <boxGeometry />
         </mesh>
       </Room>
-      <SeatRig swivelRef={swivelRef} attentionRef={attentionRef} moodRef={moodRef} colliderRef={colliderRef} />
+      <SeatRig swivelRef={swivelRef} attentionRef={attentionRef} moodRef={moodRef} colliderRef={colliderRef} coffeeRef={coffeeRef} />
       <Dust nightRef={nightRef} />
     </>
   );

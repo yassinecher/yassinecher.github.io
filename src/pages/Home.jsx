@@ -591,12 +591,17 @@ export const Home = () => {
     const id = setTimeout(() => {
       attentionRef.current.hold = true;
       activityRef.current = performance.now() + 4000;
-      // say hello as he turns round (a typing visitor gets his reading face instead)
-      const m = moodRef.current;
-      if (performance.now() > m.until || m.name === "annoyed" || m.name === "excited") {
-        feel("greeting", 3000, { look: true, line: GREETINGS[Math.min(pokes.current.hello, GREETINGS.length - 1)] });
-        pokes.current.hello++;
-      }
+      // say hello as he turns round (a typing visitor gets his reading face instead), once the
+      // mug is down if he was mid-sip
+      const hello = () => {
+        const m = moodRef.current;
+        if (performance.now() > m.until || m.name === "annoyed" || m.name === "excited") {
+          feel("greeting", 3000, { look: true, line: GREETINGS[Math.min(pokes.current.hello, GREETINGS.length - 1)] });
+          pokes.current.hello++;
+        }
+      };
+      if (coffeeRef.current.active) coffeeRef.current.onDone = hello;
+      else hello();
     }, 600);
     return () => clearTimeout(id);
   }, [active]);
@@ -645,7 +650,12 @@ export const Home = () => {
     feel("annoyed", 2400, { line: ANNOYED_LINES[pokes.current.hover % ANNOYED_LINES.length] });
   };
   const poke = () => {
-    if (coffeeRef.current.active) return;
+    // mid-sip: the mug goes down first, then he answers
+    if (coffeeRef.current.active) {
+      coffeeRef.current.abort = true;
+      coffeeRef.current.onDone = poke;
+      return;
+    }
     const m = moodRef.current;
     // Facing you already (contact, or turned to you as you write): a friendly hello, not "wait"
     const facing = attentionRef.current.hold || (performance.now() < m.until && ["interested", "greeting", "love", "reading"].includes(m.name));

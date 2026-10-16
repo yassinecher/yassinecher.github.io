@@ -36,6 +36,17 @@ const ARMS = {
   Right: ["RightArm", "RightForeArm", "RightHand"],
 };
 const smoothstep = (edge0, edge1, x) => THREE.MathUtils.smoothstep(x, edge0, edge1);
+// where along a smootherstep a value sits (for picking a movement back up from the same spot)
+const unsmoother = (y) => {
+  let lo = 0;
+  let hi = 1;
+  for (let i = 0; i < 14; i++) {
+    const mid = (lo + hi) / 2;
+    if (THREE.MathUtils.smootherstep(mid, 0, 1) < y) lo = mid;
+    else hi = mid;
+  }
+  return (lo + hi) / 2;
+};
 
 // Hands, as measured on this rig: each finger joint bends about its own x axis (positive toward
 // the palm), the fingers run along the hand's +y and the palm faces its +z.
@@ -336,10 +347,28 @@ export function Avatar(props) {
     const s = sip.current;
     if (cup?.mug) {
       const quiet = lookBody < 0.01 && !(mood && performance.now() < mood.until) && lean.current > 0.95;
-      if (s.start < 0 && quiet && (cup.request || now > s.next)) s.start = now;
+      if (s.start < 0 && quiet && (cup.request || now > s.next)) {
+        s.start = now;
+        s.t = 0;
+        s.abort = false;
+      }
       cup.request = false;
-      if (s.start >= 0 && now - s.start > SIP.length) {
+      // Called away mid-sip (you scroll to contact, click him, write to him): he puts the mug down
+      // first, from wherever it is, a little quicker, and only then turns to you (SeatRig waits)
+      const wanted = attentionRef?.current?.hold || performance.now() < (attentionRef?.current?.until ?? 0) || cup.abort;
+      if (s.start >= 0 && wanted && !s.abort) {
+        s.abort = true;
+        if (s.t < SIP.take) s.t = SIP.back[0] + unsmoother(1 - (s.reach ?? 0)) * (SIP.back[1] - SIP.back[0]);
+        else if (s.t < SIP.lower[0]) s.t = SIP.lower[0] + unsmoother(1 - (s.lift ?? 0)) * (SIP.lower[1] - SIP.lower[0]);
+      }
+      if (s.start >= 0) s.t += dt * (s.abort ? 1.7 : 1);
+      if (s.start >= 0 && s.t > SIP.length) {
         s.start = -1;
+        s.abort = false;
+        cup.abort = false;
+        const done = cup.onDone;
+        cup.onDone = null;
+        done?.();
         s.next = now + 45 + Math.random() * 40;
         cup.mug.position.copy(cup.mug.userData.rest);
         cup.mug.quaternion.identity();
@@ -348,11 +377,15 @@ export function Avatar(props) {
       }
       cup.active = s.start >= 0;
     }
-    const tc = s.start >= 0 ? now - s.start : -1; // seconds into the coffee break
+    const tc = s.start >= 0 ? s.t : -1; // seconds into the coffee break
     const between = (from, to) => (tc < 0 ? 0 : THREE.MathUtils.smootherstep(tc, from, to));
     const sipReach = tc < 0 ? 0 : between(...SIP.reach) * (1 - between(...SIP.back));
     const sipLift = tc < 0 ? 0 : between(...SIP.lift) * (1 - between(...SIP.lower));
-    const sipDrink = tc < 0 ? 0 : between(...SIP.drink.map((x, i) => x + (i ? -0.3 : 0))) * (1 - between(SIP.drink[1] - 0.2, SIP.drink[1] + 0.2));
+    // (eased, so a sip cut short tips the mug back upright instead of snapping)
+    s.drink = THREE.MathUtils.damp(s.drink ?? 0, tc < 0 ? 0 : between(...SIP.drink.map((x, i) => x + (i ? -0.3 : 0))) * (1 - between(SIP.drink[1] - 0.2, SIP.drink[1] + 0.2)), 9, dt);
+    const sipDrink = s.drink;
+    s.reach = sipReach;
+    s.lift = sipLift;
 
     // Paying attention (or thinking): the typing holds on the calm frame
     const { typing, anchor } = playing.current;
