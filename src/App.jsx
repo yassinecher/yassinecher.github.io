@@ -1,5 +1,6 @@
 import { Suspense, lazy } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
+import { ThemeSync } from "./lib/theme";
 import { ProjectDetail } from "./pages/ProjectDetail";
 import { ProjectsIndex } from "./pages/ProjectsIndex";
 
@@ -9,19 +10,22 @@ const Home = lazy(() => import("./pages/Home").then((m) => ({ default: m.Home })
 
 function App() {
   return (
-    <Routes>
-      <Route
-        path="/"
-        element={
-          <Suspense fallback={<div className="min-h-screen bg-paper" />}>
-            <Home />
-          </Suspense>
-        }
-      />
-      <Route path="/projects" element={<ProjectsIndex />} />
-      <Route path="/projects/:slug" element={<ProjectDetail />} />
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+    <>
+      <ThemeSync />
+      <Routes>
+        <Route
+          path="/"
+          element={
+            <Suspense fallback={<div className="min-h-screen bg-paper" />}>
+              <Home />
+            </Suspense>
+          }
+        />
+        <Route path="/projects" element={<ProjectsIndex />} />
+        <Route path="/projects/:slug" element={<ProjectDetail />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </>
   );
 }
 

@@ -9,8 +9,11 @@ import { createMacScreen, createPcScreen, createTvScreen } from "./screens";
 
 // "My Room in 3D" by Bruno Simon (models and bakes), assembled in its original coordinates.
 
-// How far the chair (and the avatar in it) is pulled toward the desk, in room units (x, z).
-export const CHAIR_PULL = [-0.15, -0.25];
+// The chair top swivels around its stem. In the original scene the stem sits at CHAIR_STEM; here
+// the chair is pulled toward the desk (CHAIR_PULL) so the avatar sits on it while typing.
+const CHAIR_STEM = [0.8117, 1.3047, -1.5329];
+export const CHAIR_PULL = [-0.2, -0.42];
+export const CHAIR_PIVOT = [CHAIR_STEM[0] + CHAIR_PULL[0], CHAIR_STEM[1], CHAIR_STEM[2] + CHAIR_PULL[1]];
 
 const model = (name) => asset(`models/${name}`);
 const texture = (name) => asset(`textures/${name}`);
@@ -59,7 +62,7 @@ const useScreen = (mesh, program, scale) => {
 };
 
 // Redraw budget per screen: enough for typing and a smooth bounce, a fraction of 60 fps.
-const SCREEN_FPS = { pc: 15, mac: 10, tv: 20 };
+const SCREEN_FPS = { pc: 12, mac: 8, tv: 15 };
 
 // Damp a value toward a target, frame-rate independent.
 const damp = (current, target, lambda, dt) => THREE.MathUtils.damp(current, target, lambda, dt);
@@ -86,7 +89,7 @@ export const roomInteractive = (label, action, onAction) => ({
   },
 });
 
-export const Room = ({ nightRef, screenRef, onAction }) => {
+export const Room = ({ nightRef, screenRef, onAction, swivelRef, children }) => {
   const [room, chair, pc, mac, steam, elgato, leds, loupedeck] = MODELS.map((name) => useGLTF(model(name)));
   const [day, night, lightMap, ledMask] = useTexture([
     texture("bakedDay.jpg"),
@@ -123,14 +126,10 @@ export const Room = ({ nightRef, screenRef, onAction }) => {
   useLayoutEffect(() => {
     // In the original scene the chair top swivels toward the room; here it faces the desk, with
     // the avatar sitting in it.
+    // Facing the keyboard; the swivel group around it handles any turning
     const chairTop = chair.scene.children[0];
+    chairTop.position.set(0, 0, 0);
     chairTop.rotation.y = -Math.PI / 2 + 0.19;
-    // Pulled in toward the desk, like someone about to type
-    if (!chairTop.userData.pulled) {
-      chairTop.position.x += CHAIR_PULL[0];
-      chairTop.position.z += CHAIR_PULL[1];
-      chairTop.userData.pulled = true;
-    }
     setMaterial(room.scene, baked);
     setMaterial(chair.scene, baked);
     setMaterial(steam.scene, steamMaterial);
@@ -146,13 +145,14 @@ export const Room = ({ nightRef, screenRef, onAction }) => {
     return mesh;
   }, []);
 
-  const drawPc = useScreen(pc.scene.children[0], programs.pc, 0.85);
-  const drawMac = useScreen(mac.scene.children[0], programs.mac, 0.75);
-  const drawTv = useScreen(tvMesh, programs.tv, 0.6);
+  const drawPc = useScreen(pc.scene.children[0], programs.pc, 0.75);
+  const drawMac = useScreen(mac.scene.children[0], programs.mac, 0.65);
+  const drawTv = useScreen(tvMesh, programs.tv, 0.5);
   const frustum = useMemo(() => ({ f: new THREE.Frustum(), m: new THREE.Matrix4() }), []);
 
   const loupedeckColors = ["#af55cf", "#dbd85d", "#e86b24", "#b81b54"];
   const screenClocks = useRef({ pc: 0, mac: 0, tv: 0 });
+  const lastCamera = useRef(null);
 
   useFrame((state, delta) => {
     const dt = Math.min(delta, 0.1);
@@ -182,27 +182,46 @@ export const Room = ({ nightRef, screenRef, onAction }) => {
 
     programs.pc.setContent(screenRef.current);
 
-    // Screens redraw at ~30 fps: plenty for text, half the work
-    // Only redraw screens the camera can see, each at its own rate
+    // Screens the camera can see redraw at their own rate, and at most one per frame: a redraw
+    // plus its texture upload is the most expensive thing in a frame, and two or three landing
+    // together made frames visibly late
     frustum.m.multiplyMatrices(state.camera.projectionMatrix, state.camera.matrixWorldInverse);
     frustum.f.setFromProjectionMatrix(frustum.m);
     const clocks = screenClocks.current;
+    // While the camera glides between sections nobody can read the screens: they wait, and catch
+    // up (one per frame) as soon as it settles
+    lastCamera.current ??= state.camera.position.clone();
+    const cameraSpeed = state.camera.position.distanceTo(lastCamera.current) / Math.max(dt, 1e-3);
+    lastCamera.current.copy(state.camera.position);
+    const gliding = cameraSpeed > 2.5;
+    let due = null;
     for (const [key, draw, mesh] of [
       ["pc", drawPc, pc.scene.children[0]],
       ["mac", drawMac, mac.scene.children[0]],
       ["tv", drawTv, tvMesh],
     ]) {
       clocks[key] += dt;
-      if (clocks[key] < 1 / SCREEN_FPS[key]) continue;
-      if (frustum.f.intersectsObject(mesh)) draw(time, clocks[key]);
-      clocks[key] = 0;
+      const overdue = clocks[key] * SCREEN_FPS[key];
+      if (overdue < 1) continue;
+      if (!frustum.f.intersectsObject(mesh)) {
+        clocks[key] = 0;
+        continue;
+      }
+      if (!due || overdue > due.overdue) due = { key, draw, overdue };
+    }
+    if (due && !gliding) {
+      due.draw(time, clocks[due.key]);
+      clocks[due.key] = 0;
     }
   });
 
   return (
     <group>
       <primitive object={room.scene} />
-      <primitive object={chair.scene} />
+      <group ref={swivelRef} position={CHAIR_PIVOT}>
+        <primitive object={chair.scene} />
+        {children}
+      </group>
       <primitive object={pc.scene} {...roomInteractive("My monitor · see my work", "work", onAction)} />
       <primitive object={mac.scene} {...roomInteractive("MacBook · what I work with", "about", onAction)} />
       <primitive object={steam.scene} />

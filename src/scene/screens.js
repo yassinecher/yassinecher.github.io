@@ -83,10 +83,18 @@ export const createPcScreen = () => {
   };
 
   const images = new Map();
+  // Images are decoded off the main thread before their first draw (a first drawImage of an
+  // undecoded image decodes it right there, in the middle of a frame)
   const loadImage = (src) => {
     if (!images.has(src)) {
       const img = new Image();
+      img.decoding = "async";
       img.src = src;
+      img.ready = false;
+      img.decode().then(
+        () => (img.ready = true),
+        () => {}
+      );
       images.set(src, img);
     }
     return images.get(src);
@@ -240,22 +248,56 @@ export const createPcScreen = () => {
     ctx.fillText(project.url, w / 2, 38);
     ctx.textAlign = "left";
     const img = loadImage(project.image);
-    if (img.complete && img.naturalWidth) {
-      // Cover-fit with a slow drift, like scrolling a page
+    if (img.ready && img.naturalWidth) {
       const areaH = h - 64;
-      const scale = Math.max(w / img.naturalWidth, areaH / img.naturalHeight) * 1.08;
-      const dw = img.naturalWidth * scale;
-      const dh = img.naturalHeight * scale;
-      const t = (performance.now() / 1000 - project.since) * 0.04;
-      const ox = (w - dw) / 2;
-      const oy = 64 + (areaH - dh) * (0.5 + 0.5 * Math.sin(t));
+      const aspect = img.naturalWidth / img.naturalHeight;
       ctx.save();
       ctx.beginPath();
       ctx.rect(0, 64, w, areaH);
       ctx.clip();
-      ctx.drawImage(img, ox, oy, dw, dh);
+      if (aspect >= 1.3) {
+        // A page screenshot: cover-fit with a slow drift, like scrolling the page
+        const scale = Math.max(w / img.naturalWidth, areaH / img.naturalHeight) * 1.08;
+        const dw = img.naturalWidth * scale;
+        const dh = img.naturalHeight * scale;
+        const t = (performance.now() / 1000 - project.since) * 0.04;
+        ctx.drawImage(img, (w - dw) / 2, 64 + (areaH - dh) * (0.5 + 0.5 * Math.sin(t)), dw, dh);
+      } else {
+        // A square cover or phone shot: shown whole, over a soft, dimmed copy of itself (blurred
+        // once and kept: a canvas blur every frame is expensive)
+        ctx.drawImage(backdrop(img, w, areaH), 0, 64);
+        const scale = (areaH - 48) / img.naturalHeight;
+        const dw = img.naturalWidth * scale;
+        const dh = img.naturalHeight * scale;
+        const x = (w - dw) / 2;
+        const y = 64 + 24;
+        ctx.shadowColor = "rgba(0,0,0,0.35)";
+        ctx.shadowBlur = 30;
+        ctx.shadowOffsetY = 8;
+        roundRect(ctx, x, y, dw, dh, 14);
+        ctx.fillStyle = "#111";
+        ctx.fill();
+        ctx.shadowColor = "transparent";
+        roundRect(ctx, x, y, dw, dh, 14);
+        ctx.clip();
+        ctx.drawImage(img, x, y, dw, dh);
+      }
       ctx.restore();
     }
+  };
+
+  const backdrops = new Map();
+  const backdrop = (img, w, h) => {
+    if (backdrops.has(img)) return backdrops.get(img);
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const c = canvas.getContext("2d");
+    const scale = Math.max(w / img.naturalWidth, h / img.naturalHeight) * 1.15;
+    c.filter = "blur(28px) brightness(0.55)";
+    c.drawImage(img, (w - img.naturalWidth * scale) / 2, (h - img.naturalHeight * scale) / 2, img.naturalWidth * scale, img.naturalHeight * scale);
+    backdrops.set(img, canvas);
+    return canvas;
   };
 
   // Wrap text into lines that fit `maxWidth` (canvas font must already be set).
@@ -362,6 +404,30 @@ export const createPcScreen = () => {
       ctx.fillStyle = "#6f675d";
       ctx.font = `400 22px ${SANS}`;
       ctx.fillText("Thank you. I'll get back to you soon.", w / 2, h / 2 + 108);
+      ctx.textAlign = "left";
+    } else if (mail.failed) {
+      // It didn't go through: say so, and where to write instead
+      ctx.fillStyle = "rgba(246,243,238,0.94)";
+      ctx.fillRect(0, 64, w, h - 64);
+      ctx.strokeStyle = "#d4472a";
+      ctx.lineWidth = 8;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.arc(w / 2, h / 2 - 30, 54, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(w / 2 - 20, h / 2 - 50);
+      ctx.lineTo(w / 2 + 20, h / 2 - 10);
+      ctx.moveTo(w / 2 + 20, h / 2 - 50);
+      ctx.lineTo(w / 2 - 20, h / 2 - 10);
+      ctx.stroke();
+      ctx.fillStyle = "#1c1a17";
+      ctx.font = `600 34px ${SANS}`;
+      ctx.textAlign = "center";
+      ctx.fillText("Not sent", w / 2, h / 2 + 70);
+      ctx.fillStyle = "#6f675d";
+      ctx.font = `400 22px ${SANS}`;
+      ctx.fillText("Write to yassinecherni9@gmail.com instead", w / 2, h / 2 + 108);
       ctx.textAlign = "left";
     }
   };

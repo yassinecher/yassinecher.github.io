@@ -1,50 +1,10 @@
-import { useSetAtom } from "jotai";
-import { Link, NavLink, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { profile } from "../../data/profile";
 import { cvUrl, useCvAvailable } from "../../lib/useCv";
-import { homeSectionAtom } from "../../state";
+import { SiteNav, useGoHome } from "./Nav";
 
-// Shared header/footer for the regular (non-3D) pages.
-
-export const useGoHome = () => {
-  const navigate = useNavigate();
-  const setHomeSection = useSetAtom(homeSectionAtom);
-  return (section = 0) => {
-    setHomeSection({ index: section, at: Date.now() });
-    navigate("/");
-  };
-};
-
-export const SiteHeader = () => {
-  const goHome = useGoHome();
-  return (
-    <header className="sticky top-0 z-30 border-b border-line/80 bg-paper/85 backdrop-blur-md">
-      <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-5 md:px-8">
-        <button onClick={() => goHome(0)} className="font-serif text-2xl leading-none">
-          Yassine Cherni
-        </button>
-        <nav className="flex items-center gap-5 md:gap-7 text-sm">
-          <NavLink
-            to="/projects"
-            end
-            className={({ isActive }) => `link-draw pb-0.5 ${isActive ? "text-ink" : "text-muted hover:text-ink"}`}
-          >
-            Projects
-          </NavLink>
-          <button onClick={() => goHome(2)} className="link-draw hidden pb-0.5 text-muted hover:text-ink sm:block">
-            Experience
-          </button>
-          <button
-            onClick={() => goHome(4)}
-            className="rounded-full bg-ink px-4 py-2 font-medium text-paper transition-transform hover:-translate-y-0.5"
-          >
-            Contact
-          </button>
-        </nav>
-      </div>
-    </header>
-  );
-};
+// Shared header/footer for the regular (non-3D) pages. The header is the same one as the home
+// page's (SiteNav).
 
 export const ContactBand = () => {
   const goHome = useGoHome();
@@ -91,8 +51,8 @@ export const SiteFooter = () => (
 
 export const PageShell = ({ children }) => (
   <div className="min-h-screen font-sans text-ink">
-    <SiteHeader />
-    <main>{children}</main>
+    <SiteNav />
+    <main className="pt-16">{children}</main>
     <ContactBand />
     <SiteFooter />
   </div>

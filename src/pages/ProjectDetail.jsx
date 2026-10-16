@@ -12,12 +12,13 @@ const Label = ({ children }) => (
 // A titled band: label + serif heading in a narrow left column, content on the right.
 const Band = ({ label, title, children }) => (
   <section className="mx-auto max-w-6xl px-5 md:px-8">
-    <div className="grid gap-6 border-t border-line pt-8 md:grid-cols-[260px_1fr] md:gap-12 md:pt-10">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-6 border-t border-line pt-8 md:grid-cols-[minmax(0,260px)_minmax(0,1fr)] md:gap-12 md:pt-10">
       <div>
         <Label>{label}</Label>
         <h2 className="mt-2 font-serif text-3xl md:text-4xl leading-[1.05]">{title}</h2>
       </div>
-      <div>{children}</div>
+      {/* min-w-0: the code sample scrolls inside its box instead of widening the page on phones */}
+      <div className="min-w-0">{children}</div>
     </div>
   </section>
 );

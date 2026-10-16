@@ -4,6 +4,19 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="theme-color" content="#f3eee5" />
+    <script>
+      // Evening colours before the first paint, so night visitors don't get a flash of daylight
+      // (the same rule as src/lib/theme.js)
+      (function () {
+        try {
+          var choice = sessionStorage.getItem("lights");
+          var hour = Number(new Intl.DateTimeFormat("en-GB", { hour: "2-digit", hour12: false, timeZone: "Africa/Tunis" }).format(new Date()));
+          var night = choice ? choice === "night" : hour >= 19 || hour < 6;
+          document.documentElement.dataset.theme = night ? "night" : "day";
+          if (night) document.querySelector('meta[name="theme-color"]').setAttribute("content", "#16130f");
+        } catch (e) {}
+      })();
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Yassine Cherni · Full-stack software engineer</title>
     <meta

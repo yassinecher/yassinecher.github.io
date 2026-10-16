@@ -13,8 +13,30 @@ const TYPING = asset("animations/typing.json");
 // Seated typing moves the upper body only; the clip's occasional leg shuffle reads as a kick.
 const LOWER_BODY = ["Hips", "LeftUpLeg", "LeftLeg", "LeftFoot", "LeftToeBase", "RightUpLeg", "RightLeg", "RightFoot", "RightToeBase"];
 
+// Bones that turn him toward the camera, the share of the remaining turn each one takes (the chair
+// does most of it, see SeatRig), which part of him leads it, and how far that bone can twist on
+// its own (radians). The head takes whatever is left within its range, so once the body has come
+// round the face is square on the camera, and while it hasn't the head stops where a neck would.
+const LOOK_CHAIN = [
+  ["Spine1", 0.2, "body", 0.3],
+  ["Spine2", 0.25, "body", 0.35],
+  ["Neck", 0.4, "head", 0.55],
+  ["Head", 1, "head", 0.7],
+];
+const UP = new THREE.Vector3(0, 1, 0);
+// The face looks along the head bone's own +z (measured: the eyes sit along +z and +y)
+const FACE = new THREE.Vector3(0, 0, 1);
+const NO_MOOD = { excited: 0, interested: 0, love: 0, upset: 0, annoyed: 0, startled: 0 };
+// Shoulder, elbow and wrist of each arm, for reaching: hands onto his thighs when he turns to
+// you, and the right one up to shoo you away when you poke him
+const ARMS = {
+  Left: ["LeftArm", "LeftForeArm", "LeftHand"],
+  Right: ["RightArm", "RightForeArm", "RightHand"],
+};
+const smoothstep = (edge0, edge1, x) => THREE.MathUtils.smoothstep(x, edge0, edge1);
+
 export function Avatar(props) {
-  const { animation, wireframe, pose = {}, calm = { weight: 0, time: 0, speed: 1 } } = props;
+  const { animation, wireframe, pose = {}, calm = { weight: 0, time: 0, speed: 1 }, hands, attentionRef, moodRef } = props;
   const group = useRef();
   const { nodes, materials } = useGLTF(asset("models/avatar1.glb"));
 
@@ -37,30 +59,273 @@ export function Avatar(props) {
   }, [clips]);
 
   const lean = useRef(0);
+  const playing = useRef({ typing: null, anchor: null });
+  const tmp = useMemo(
+    () => ({
+      offsets: {},
+      after: {},
+      v: [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()],
+      q: [new THREE.Quaternion(), new THREE.Quaternion(), new THREE.Quaternion(), new THREE.Quaternion(), new THREE.Quaternion()],
+      target: new THREE.Vector3(),
+      side: new THREE.Vector3(),
+      toward: new THREE.Vector3(),
+      before: [new THREE.Quaternion(), new THREE.Quaternion()],
+      solved: new THREE.Quaternion(),
+    }),
+    []
+  );
+  const armLength = useRef(0);
+  // Short pauses in the typing, as if he were thinking about the next line
+  const rhythm = useRef({ pauseAt: 6, until: 0, pause: 0 });
+
+  // Faces with smile and open-mouth shapes (head, teeth, eyes)
+  const faceMeshes = useRef(null);
 
   // Offsets are applied on top of whatever the mixer produced. The mixer only writes a bone when
   // its animated value changes, so a bone it left alone still holds last frame's result: detect
   // that and start again from the base pose, otherwise the offsets would pile up frame after frame.
-  const offsetState = useRef({ base: {}, applied: {} });
+  const offsetState = useRef({
+    base: {},
+    applied: {},
+    touched: new Set([...LOOK_CHAIN.map(([name]) => name), ...ARMS.Left, ...ARMS.Right]),
+  });
 
+  // Turns `bone` so the face swings `share` of the way toward `target`: around the vertical first,
+  // then up or down, so the head stays upright instead of rolling. World space: the room is level
+  // (his own root group is tipped by the model's export, so it can't be the reference).
+  const turnToward = (bone, target, share, limit = Math.PI) => {
+    const [headPos, face, want, axis] = tmp.v;
+    const [turn, pitch, scratch] = tmp.q;
+    nodes.Head.getWorldPosition(headPos);
+    face.copy(FACE).applyQuaternion(nodes.Head.getWorldQuaternion(scratch));
+    want.copy(target).sub(headPos).normalize();
+    let yaw = Math.atan2(want.x, want.z) - Math.atan2(face.x, face.z);
+    yaw = Math.atan2(Math.sin(yaw), Math.cos(yaw));
+    const tilt = Math.asin(THREE.MathUtils.clamp(want.y, -1, 1)) - Math.asin(THREE.MathUtils.clamp(face.y, -1, 1));
+    turn.setFromAxisAngle(UP, THREE.MathUtils.clamp(yaw * share, -limit, limit));
+    axis.copy(face).applyQuaternion(turn).setY(0).normalize().cross(UP).normalize();
+    pitch.setFromAxisAngle(axis, THREE.MathUtils.clamp(tilt * share, -limit * 0.6, limit * 0.6));
+    turn.premultiply(pitch);
+    // On top of the bone's current world rotation: local = parent^-1 * turn * world
+    bone.getWorldQuaternion(scratch);
+    const parent = bone.parent.getWorldQuaternion(pitch).invert();
+    bone.quaternion.copy(parent.multiply(turn).multiply(scratch));
+  };
 
-  useFrame((state, delta) => {
-    // Small per-bone rotations on top of the animation (e.g. lean in and lower the arms so the
-    // hands rest on the keyboard). Runs after the mixer has posed the bones for this frame.
-    lean.current = THREE.MathUtils.damp(lean.current, animation === "Typing" ? 1 : 0, 4, delta);
-    if (lean.current > 0.001) {
-      const { base, applied } = offsetState.current;
-      for (const [name, [x, y, z]] of Object.entries(pose)) {
-        const bone = nodes[name];
-        if (!bone) continue;
-        if (applied[name] && bone.quaternion.equals(applied[name])) bone.quaternion.copy(base[name]);
-        else (base[name] ??= new THREE.Quaternion()).copy(bone.quaternion);
-        bone.rotateX(x * lean.current);
-        bone.rotateY(y * lean.current);
-        bone.rotateZ(z * lean.current);
-        (applied[name] ??= new THREE.Quaternion()).copy(bone.quaternion);
+  // Moves a hand toward `target` (a two-bone reach: shoulder, then elbow), blended in by `amount`
+  // so the arm eases out of whatever pose it was in.
+  const reach = (side, target, amount) => {
+    const [arm, fore, hand] = ARMS[side].map((name) => nodes[name]);
+    const [bonePos, handPos, toHand, toTarget] = tmp.v;
+    const [turn, parent, world] = tmp.q;
+    const [armBefore, foreBefore] = tmp.before;
+    armBefore.copy(arm.quaternion);
+    foreBefore.copy(fore.quaternion);
+    for (let pass = 0; pass < 5; pass++) {
+      for (const bone of [fore, arm]) {
+        bone.getWorldPosition(bonePos);
+        hand.getWorldPosition(handPos);
+        toHand.copy(handPos).sub(bonePos).normalize();
+        toTarget.copy(target).sub(bonePos).normalize();
+        turn.setFromUnitVectors(toHand, toTarget);
+        bone.getWorldQuaternion(world);
+        bone.parent.getWorldQuaternion(parent).invert();
+        bone.quaternion.copy(parent.multiply(turn).multiply(world));
       }
     }
+    tmp.solved.copy(arm.quaternion);
+    arm.quaternion.slerpQuaternions(armBefore, tmp.solved, amount);
+    tmp.solved.copy(fore.quaternion);
+    fore.quaternion.slerpQuaternions(foreBefore, tmp.solved, amount);
+  };
+
+  useFrame((state, delta) => {
+    const dt = Math.min(delta, 0.1);
+    const now = state.clock.elapsedTime;
+    lean.current = THREE.MathUtils.damp(lean.current, animation === "Typing" ? 1 : 0, 4, dt);
+    // How turned toward you each part of him is (see SeatRig): the head leads, then the body, and
+    // the hands leave (and find) the keyboard last
+    const parts = attentionRef?.current ?? {};
+    const lookHead = parts.head ?? 0;
+    const lookBody = parts.body ?? 0;
+    const handsOff = parts.hands ?? 0;
+    const attention = lookBody;
+    const mood = moodRef?.current;
+    const w = mood?.weights ?? NO_MOOD;
+    const t = mood ? (performance.now() - mood.at) / 1000 : 0; // seconds into the current mood
+
+    // Every so often he stops typing for a moment, sits back a touch and thinks
+    const r = rhythm.current;
+    if (now > r.pauseAt) {
+      const length = 1.4 + Math.random() * 1.6;
+      r.until = now + length;
+      r.pauseAt = now + length + 7 + Math.random() * 9;
+    }
+    r.pause = THREE.MathUtils.damp(r.pause, now < r.until ? 1 : 0, 3, dt);
+
+    // Paying attention (or thinking): the typing holds on the calm frame
+    const { typing, anchor } = playing.current;
+    if (typing && anchor) {
+      const live = (1 - calm.weight) * (1 - handsOff) * (1 - 0.85 * r.pause);
+      typing.setEffectiveWeight(live);
+      anchor.setEffectiveWeight(1 - live);
+      typing.timeScale = calm.speed * (1 + 0.7 * w.excited + 0.5 * w.annoyed); // excited or annoyed: faster
+    }
+
+    const { offsets, after } = tmp;
+    for (const key of Object.keys(offsets)) delete offsets[key];
+    for (const key of Object.keys(after)) delete after[key];
+    for (const [name, rotation] of Object.entries(pose)) offsets[name] = rotation.map((v) => v * lean.current);
+    const add = (map, name, x, y = 0, z = 0) => {
+      const current = map[name] ?? [0, 0, 0];
+      map[name] = [current[0] + x, current[1] + y, current[2] + z];
+    };
+
+    // Alive: breathing, and his head drifting along the lines on the monitor as he reads
+    add(offsets, "Spine1", Math.sin(now * 1.55) * 0.012);
+    add(offsets, "Spine2", Math.sin(now * 1.55 - 0.6) * 0.01);
+    add(after, "Head", Math.sin(now * 0.7) * 0.012, (Math.sin(now * 0.43) + Math.sin(now * 1.13) * 0.5) * 0.035 * (1 - lookHead));
+    // Thinking: sits back a little, eyes up off the screen
+    add(offsets, "Spine", -0.05 * r.pause);
+    add(after, "Head", -0.07 * r.pause * (1 - lookHead));
+
+    if (attention > 0.001) add(offsets, "Spine", -0.12 * attention); // sit up a little
+    // Excited (a project picked): sits up and bounces a little in the chair
+    if (w.excited > 0.001) {
+      const e = w.excited;
+      add(offsets, "Spine", (-0.06 - Math.abs(Math.sin(t * 6.5)) * 0.035) * e);
+      add(after, "Head", (-0.05 + Math.sin(t * 13) * 0.03) * e);
+    }
+    // Interested (the visitor is writing to him): leans in, head tilted, slow nods
+    if (w.interested > 0.001) {
+      const i = w.interested;
+      add(offsets, "Spine", 0.07 * i);
+      add(after, "Head", Math.max(0, Math.sin(t * 2.4)) ** 2 * 0.1 * i, 0, 0.15 * i);
+    }
+    // Love (the message arrived): head tilted the other way, a happy sway
+    if (w.love > 0.001) {
+      const l = w.love;
+      add(offsets, "Spine1", 0, 0, Math.sin(t * 1.8) * 0.05 * l);
+      add(after, "Head", Math.sin(t * 3.6) * 0.03 * l, 0, -0.16 * l);
+    }
+    // Upset (it didn't go through): a sigh, shoulders and head drop, then a slow "no" shake
+    if (w.upset > 0.001) {
+      const u = w.upset;
+      const sigh = Math.sin(Math.min(t, 1.2) * Math.PI / 1.2) * 0.08; // breathes in, then lets go
+      add(offsets, "Spine", (0.2 - sigh) * u);
+      add(offsets, "Spine1", 0.08 * u);
+      add(offsets, "LeftShoulder", 0, 0, 0.12 * u);
+      add(offsets, "RightShoulder", 0, 0, -0.12 * u);
+      add(after, "Neck", 0.12 * u);
+      add(after, "Head", 0.22 * u, Math.sin(t * 7) * 0.3 * Math.max(0, 1 - t / 2.6) * u);
+    }
+
+    // Poked (clicked): a jolt, then he turns on you, cross, and shoos you away
+    const ts = mood?.name === "startled" ? t : Infinity; // time since the poke
+    const jolt = w.startled > 0.01 ? Math.exp(-((ts - 0.16) ** 2) / 0.012) * Math.min(1, w.startled * 1.5) : 0;
+    const shoo = smoothstep(0.55, 0.95, ts) * (1 - smoothstep(2.6, 3.1, ts)) * w.startled;
+    if (jolt > 0.001) {
+      add(offsets, "Spine", -0.14 * jolt);
+      add(offsets, "Spine2", -0.08 * jolt);
+      add(offsets, "LeftShoulder", 0, 0, -0.16 * jolt);
+      add(offsets, "RightShoulder", 0, 0, 0.16 * jolt);
+      add(after, "Head", -0.2 * jolt);
+    }
+    // Hovered (annoyed): a side-eye over his shoulder, then straight back to work
+    const ta = mood?.name === "annoyed" ? t : Infinity;
+    const glance = smoothstep(0, 0.35, ta) * (1 - smoothstep(1.1, 1.7, ta)) * w.annoyed;
+    if (w.annoyed > 0.001) add(offsets, "Spine1", Math.sin(Math.min(t, 1) * Math.PI) * -0.04 * w.annoyed); // a sigh
+
+    // Mouth: a smile when he's paying attention, a grin when excited, a frown when upset
+    faceMeshes.current ??= ["Wolf3D_Head", "Wolf3D_Teeth", "EyeLeft", "EyeRight"]
+      .map((name) => group.current.getObjectByName(name))
+      .filter((mesh) => mesh?.morphTargetDictionary?.mouthSmile !== undefined);
+    const cross = Math.max(w.upset, w.annoyed, w.startled);
+    const smile =
+      Math.max(0.8 * lookHead, 0.9 * w.excited, 0.6 * w.interested, w.love) * (1 - cross) -
+      0.7 * w.upset - 0.45 * w.annoyed - 0.85 * w.startled;
+    const open = 0.28 * w.excited + 0.16 * w.love + 0.8 * jolt + 0.12 * shoo;
+    for (const mesh of faceMeshes.current) {
+      const shapes = mesh.morphTargetDictionary;
+      mesh.morphTargetInfluences[shapes.mouthSmile] = smile;
+      if (shapes.mouthOpen !== undefined) mesh.morphTargetInfluences[shapes.mouthOpen] = open;
+    }
+
+    // Offsets go on top of whatever the mixer produced this frame (see offsetState above)
+    const { base, applied, touched } = offsetState.current;
+    for (const name of Object.keys(offsets)) touched.add(name);
+    for (const name of Object.keys(after)) touched.add(name);
+    for (const name of touched) {
+      const bone = nodes[name];
+      if (!bone) continue;
+      if (applied[name] && bone.quaternion.equals(applied[name])) bone.quaternion.copy(base[name]);
+      else (base[name] ??= new THREE.Quaternion()).copy(bone.quaternion);
+      const [x, y, z] = offsets[name] ?? [0, 0, 0];
+      bone.rotateX(x);
+      bone.rotateY(y);
+      bone.rotateZ(z);
+    }
+    // Then the turn toward the camera, and the head's own gestures on top of it
+    for (const [name, share, part, limit] of LOOK_CHAIN) {
+      const amount = part === "head" ? lookHead : lookBody;
+      if (amount > 0.001) turnToward(nodes[name], state.camera.position, share * amount, limit);
+    }
+    if (glance > 0.001) {
+      turnToward(nodes.Neck, state.camera.position, 0.3 * glance);
+      turnToward(nodes.Head, state.camera.position, 0.45 * glance);
+    }
+    if (!armLength.current) {
+      const [a, b, c] = ARMS.Right.map((name) => nodes[name].getWorldPosition(new THREE.Vector3()));
+      armLength.current = a.distanceTo(b) + b.distanceTo(c);
+    }
+    const length = armLength.current;
+    // Typing: wrists on the keyboard, drifting a little as the hands move over the keys
+    if (hands && handsOff < 0.999) {
+      const { target } = tmp;
+      for (const [index, side] of ["Left", "Right"].entries()) {
+        const phase = index * 2.1;
+        target.fromArray(hands[side]);
+        target.x += Math.sin(now * 1.9 + phase) * 0.012 * (1 - r.pause);
+        target.z += Math.sin(now * 1.3 + phase) * 0.01 * (1 - r.pause);
+        target.y += Math.max(0, Math.sin(now * 5.3 + phase)) * 0.008 * (1 - r.pause);
+        reach(side, target, lean.current * (1 - handsOff));
+      }
+    }
+    // Turned toward you, his hands come off the keyboard and rest on his thighs
+    if (handsOff > 0.001) {
+      const { target } = tmp;
+      for (const side of ["Left", "Right"]) {
+        const [hip, knee] = tmp.v;
+        nodes[`${side}UpLeg`].getWorldPosition(hip);
+        nodes[`${side}Leg`].getWorldPosition(knee);
+        target.copy(hip).lerp(knee, 0.62).addScaledVector(UP, 0.16 * length);
+        reach(side, target, handsOff);
+      }
+    }
+    // The shoo: hand up beside his face, toward you, flapping you away
+    if (shoo > 0.001) {
+      const { target, side, toward } = tmp;
+      const [shoulder, otherShoulder] = tmp.v;
+      nodes.LeftArm.getWorldPosition(otherShoulder);
+      nodes.RightArm.getWorldPosition(shoulder);
+      side.copy(shoulder).sub(otherShoulder).setY(0).normalize();
+      toward.copy(state.camera.position).sub(shoulder).setY(0).normalize();
+      target
+        .copy(shoulder)
+        .addScaledVector(toward, 0.55 * length)
+        .addScaledVector(UP, 0.22 * length)
+        .addScaledVector(side, (0.32 + Math.sin(t * 11) * 0.12) * length);
+      reach("Right", target, shoo);
+      nodes.RightHand.rotateX(Math.sin(t * 11 - 0.6) * 0.45 * shoo);
+    }
+    for (const [name, [x, y, z]] of Object.entries(after)) {
+      const bone = nodes[name];
+      if (!bone) continue;
+      bone.rotateX(x);
+      bone.rotateY(y);
+      bone.rotateZ(z);
+    }
+    for (const name of touched) if (nodes[name]) (applied[name] ??= new THREE.Quaternion()).copy(nodes[name].quaternion);
   });
 
   useEffect(() => {
@@ -70,18 +335,23 @@ export function Avatar(props) {
     typing.reset().play();
     anchor.reset().play();
     anchor.paused = true;
-    const apply = () => {
-      anchor.time = calm.time;
-      anchor.setEffectiveWeight(calm.weight);
-      typing.setEffectiveWeight(1 - calm.weight);
-      typing.timeScale = calm.speed;
-    };
-    apply();
+    anchor.time = calm.time;
+    anchor.setEffectiveWeight(calm.weight);
+    typing.setEffectiveWeight(1 - calm.weight);
+    typing.timeScale = calm.speed;
+    playing.current = { typing, anchor };
     return () => {
       typing.stop();
       anchor.stop();
     };
   }, [animation, actions, mixer, anchorClip]);
+
+  // The pointer hits a simple box around him instead (Scene), not the skinned meshes
+  useEffect(() => {
+    group.current.traverse((object) => {
+      if (object.isSkinnedMesh) object.raycast = () => {};
+    });
+  }, []);
 
   // Matte everything so the avatar sits with the soft, baked look of the room: no shiny streaks
   // on the hair or plastic-looking skin.
@@ -102,7 +372,7 @@ export function Avatar(props) {
 
   return (
     <group {...props} scale={0.44} ref={group} dispose={null}>
-      <group    >
+      <group>
         <primitive object={nodes.Hips} />
         <skinnedMesh
           frustumCulled={false}

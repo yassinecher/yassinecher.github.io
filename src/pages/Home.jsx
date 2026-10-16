@@ -1,25 +1,27 @@
 import { ValidationError, useForm } from "@formspree/react";
 import { PerformanceMonitor, useProgress } from "@react-three/drei";
 import { Canvas } from "@react-three/fiber";
-import { useAtom } from "jotai";
+import { useAtom, useSetAtom } from "jotai";
 import Lenis from "lenis";
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { MoodMarks } from "../components/MoodMarks";
+import { SECTIONS, SiteNav } from "../components/site/Nav";
 import { education, experience, languages, profile, stack } from "../data/profile";
 import { projects as allProjects } from "../data/projects";
+import { sceneEveningAtom, useLights } from "../lib/theme";
 import { cvUrl, useCvAvailable } from "../lib/useCv";
 import { AvatarTracker, FrameDriver, Scene } from "../scene/Scene";
 import { homeSectionAtom } from "../state";
 
-const SECTIONS = [
-  { id: "intro", label: "Intro" },
-  { id: "about", label: "About" },
-  { id: "experience", label: "Experience" },
-  { id: "work", label: "Work" },
-  { id: "contact", label: "Contact" },
-];
-
 const featured = allProjects.filter((p) => p.featured);
+
+// What he says (in the handwritten note by his head) for each mood
+const MOOD_LINES = { interested: "go on, I'm reading", love: "thank you!", upset: "oh no…", annoyed: "not now…", startled: "not now!" };
+// Hovering him while he works, and poking him (a click)
+const ANNOYED_LINES = ["not now…", "busy, sorry", "after this commit…"];
+const STARTLED_LINES = ["not now!", "hey! I'm coding", "shoo, I'm working!"];
+const EXCITED_LINES = ["ooh, good pick!", "yes, that one!", "I like this one", "look at this one"];
 
 const projectUrl = (p) => {
   const link = p.links.find((l) => l.label.toLowerCase().includes("live")) || p.links[0];
@@ -28,17 +30,6 @@ const projectUrl = (p) => {
 
 // ---------------------------------------------------------------------------------------------
 
-const useTunisTime = () => {
-  const format = () =>
-    new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Africa/Tunis" }).format(new Date());
-  const [time, setTime] = useState(format);
-  useEffect(() => {
-    const id = setInterval(() => setTime(format()), 15000);
-    return () => clearInterval(id);
-  }, []);
-  return time;
-};
-
 const Label = ({ index, children }) => (
   <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted">
     {index && <span className="text-accent">{index}</span>}
@@ -46,102 +37,6 @@ const Label = ({ index, children }) => (
     {children}
   </p>
 );
-
-const LightSwitch = ({ on, onToggle }) => (
-  <button
-    onClick={onToggle}
-    aria-pressed={on}
-    title={on ? "Turn the room lights off" : "Turn the room lights on"}
-    className="group flex items-center gap-2 rounded-full border border-line bg-card/70 py-1 pl-1 pr-3 text-xs font-medium text-muted backdrop-blur transition-colors hover:text-ink"
-  >
-    <span className={`relative h-5 w-9 rounded-full transition-colors ${on ? "bg-ink" : "bg-paper-2"}`}>
-      <span
-        className={`absolute top-0.5 h-4 w-4 rounded-full shadow-sm transition-all duration-300 ${
-          on ? "left-[18px] bg-[#ffd27a]" : "left-0.5 bg-white"
-        }`}
-      />
-    </span>
-    {on ? "Evening" : "Daylight"}
-  </button>
-);
-
-const Nav = ({ active, onJump, evening, toggleEvening }) => {
-  const time = useTunisTime();
-  const [open, setOpen] = useState(false);
-  const [scrolled, setScrolled] = useState(false);
-  useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 20);
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
-
-  return (
-    <header
-      className={`fixed inset-x-0 top-0 z-40 transition-colors duration-300 ${
-        scrolled || open ? "border-b border-line/80 bg-paper/85 backdrop-blur-md" : "border-b border-transparent"
-      }`}
-    >
-      <div className="mx-auto flex h-16 max-w-[1400px] items-center justify-between px-5 md:px-10">
-        <button onClick={() => onJump(0)} className="text-left leading-none">
-          <span className="block font-serif text-2xl text-ink">Yassine Cherni</span>
-          <span className="hidden sm:block font-mono text-[10px] uppercase tracking-[0.18em] text-muted mt-1">
-            Tunisia · {time}
-          </span>
-        </button>
-
-        <nav className="hidden md:flex items-center gap-7 text-sm">
-          {SECTIONS.slice(1).map((s, i) => (
-            <button
-              key={s.id}
-              onClick={() => onJump(i + 1)}
-              data-active={active === i + 1}
-              className={`link-draw pb-0.5 transition-colors ${active === i + 1 ? "text-ink" : "text-muted hover:text-ink"}`}
-            >
-              {s.label}
-            </button>
-          ))}
-          <Link to="/projects" className="link-draw pb-0.5 text-muted hover:text-ink">
-            All projects
-          </Link>
-          <LightSwitch on={evening} onToggle={toggleEvening} />
-        </nav>
-
-        <button
-          onClick={() => setOpen(!open)}
-          className="md:hidden rounded-full border border-line bg-card/80 px-4 py-2 text-sm font-medium"
-          aria-expanded={open}
-        >
-          {open ? "Close" : "Menu"}
-        </button>
-      </div>
-      {open && (
-        <div className="md:hidden border-t border-line px-5 pb-6 pt-2">
-          {SECTIONS.map((s, i) => (
-            <button
-              key={s.id}
-              onClick={() => {
-                onJump(i);
-                setOpen(false);
-              }}
-              className="flex w-full items-baseline justify-between border-b border-line py-4 text-left"
-            >
-              <span className="font-serif text-3xl">{s.label}</span>
-              <span className="font-mono text-xs text-muted">0{i}</span>
-            </button>
-          ))}
-          <div className="mt-4 flex items-center justify-between">
-            <Link to="/projects" className="font-medium underline underline-offset-4">
-              All projects
-            </Link>
-            <LightSwitch on={evening} onToggle={toggleEvening} />
-          </div>
-        </div>
-      )}
-    </header>
-  );
-};
-
-// ---------------------------------------------------------------------------------------------
 
 // The page is usable straight away; this small note tracks the room while it loads, and the
 // canvas fades in once everything is there.
@@ -174,8 +69,10 @@ const Section = ({ index, innerRef, children, className = "" }) => (
     id={SECTIONS[index].id}
     className={`relative flex min-h-screen items-end md:items-center px-5 md:px-10 ${className}`}
   >
-    <div className="pointer-events-auto mx-auto w-full max-w-[1400px] pb-10 md:pb-0">
-      <div className="max-w-[540px] rounded-3xl bg-paper/90 p-5 backdrop-blur-sm md:bg-transparent md:p-0 md:backdrop-blur-none">
+    {/* Only the text column takes the pointer: the rest of the screen is the room, which you can
+        hover and click (him, the monitor, the TV...) */}
+    <div className="mx-auto w-full max-w-[1400px] pb-10 md:pb-0">
+      <div className="pointer-events-auto max-w-[540px] rounded-3xl bg-paper/90 p-5 backdrop-blur-sm md:bg-transparent md:p-0 md:backdrop-blur-none">
         {children}
       </div>
     </div>
@@ -324,9 +221,11 @@ const Work = ({ selected, setSelected, openProject }) => {
   );
 };
 
-const Contact = ({ mailRef }) => {
+const Contact = ({ mailRef, feel }) => {
   const [state, handleSubmit] = useForm("mgegpwwl");
   const [copied, setCopied] = useState(false);
+  // Shown a moment after a failed send, once he's had his "oh no"
+  const [failed, setFailed] = useState(false);
   const cvAvailable = useCvAvailable();
   const copy = async () => {
     try {
@@ -337,13 +236,46 @@ const Contact = ({ mailRef }) => {
       window.location.href = `mailto:${profile.email}`;
     }
   };
-  // Mirror the form onto the monitor in the room
+  // Mirror the form onto the monitor in the room. He follows along as you write, with a word for
+  // each field: your name once you've written it, your address, and a long message.
   const mirror = (key) => (e) => {
-    mailRef.current[key] = e.target.value;
+    const value = e.target.value;
+    mailRef.current[key] = value;
+    let line = "go on, I'm reading";
+    if (key === "name") line = "and you are…?";
+    if (key === "email") line = value.includes("@") ? "I'll reply there" : "where do I reply?";
+    if (key === "message" && value.length > 140) line = "ooh, tell me more";
+    feel("interested", 2800, { look: true, line });
+  };
+  const greet = (e) => {
+    const first = e.target.value.trim().split(/\s+/)[0].slice(0, 16);
+    if (first.length > 1) feel("interested", 3200, { look: true, line: `nice to meet you, ${first}` });
   };
   useEffect(() => {
     mailRef.current.sent = state.succeeded;
+    // It landed: he turns around, all smiles
+    if (state.succeeded) feel("love", 7500, { look: true });
   }, [state.succeeded]);
+  // It didn't go through: he's upset for a moment, then the page says where to write instead
+  useEffect(() => {
+    if (!state.errors || state.submitting) return;
+    mailRef.current.failed = true;
+    feel("upset", 6500, { look: true });
+    const id = setTimeout(() => setFailed(true), 1500);
+    return () => clearTimeout(id);
+  }, [state.errors, state.submitting]);
+  const submit = (e) => {
+    setFailed(false);
+    mailRef.current.failed = false;
+    handleSubmit(e);
+  };
+  // The visitor's message, ready to go in their own mail app
+  const draft = () => {
+    const { name, email, message } = mailRef.current;
+    const signature = [name, email].filter(Boolean).join(" · ");
+    const body = [message, signature && `— ${signature}`].filter(Boolean).join("\n\n");
+    return `mailto:${profile.email}?subject=${encodeURIComponent("Hello from your portfolio")}&body=${encodeURIComponent(body)}`;
+  };
   const field =
     "w-full border-0 border-b border-line bg-transparent px-0 py-2.5 text-[15px] placeholder:text-muted/60 focus:border-ink focus:outline-hidden focus:ring-0 transition-colors";
 
@@ -373,18 +305,38 @@ const Contact = ({ mailRef }) => {
       </div>
 
       {state.succeeded ? (
-        <p className="mt-8 font-serif text-2xl">Thanks, I'll get back to you soon.</p>
+        <p className="mt-8 font-serif text-2xl">Thank you, it just landed on my screen. I'll get back to you soon.</p>
       ) : (
-        <form onSubmit={handleSubmit} className="mt-8 grid gap-4 sm:grid-cols-2">
-          <input aria-label="Name" name="name" required placeholder="Your name" className={field} onChange={mirror("name")} />
+        <form onSubmit={submit} className="mt-8 grid gap-4 sm:grid-cols-2">
+          <input aria-label="Name" name="name" required placeholder="Your name" className={field} onChange={mirror("name")} onBlur={greet} />
           <input aria-label="Email" type="email" name="email" required placeholder="Your email" className={field} onChange={mirror("email")} />
           <textarea aria-label="Message" name="message" required rows={3} placeholder="What are you working on?" className={`${field} sm:col-span-2 resize-none`} onChange={mirror("message")} />
           <ValidationError className="text-sm text-accent-ink sm:col-span-2" errors={state.errors} />
+          {failed && (
+            <div role="alert" className="fallback-in border-l-2 border-accent pl-4 sm:col-span-2">
+              <p className="font-serif text-2xl leading-tight">That one didn't reach me.</p>
+              <p className="mt-1.5 text-[15px] leading-relaxed text-muted">
+                Nothing is lost. Send it straight to{" "}
+                <a href={`mailto:${profile.email}`} className="font-medium text-ink underline underline-offset-2">
+                  {profile.email}
+                </a>
+                : your message is already written.
+              </p>
+              <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2">
+                <a href={draft()} className="rounded-full border border-ink px-4 py-2 text-[14px] font-medium transition-colors hover:bg-ink hover:text-paper">
+                  Open it in my mail app
+                </a>
+                <button type="button" onClick={copy} className="link-draw text-[14px] font-medium">
+                  {copied ? "Address copied" : "Copy the address"}
+                </button>
+              </div>
+            </div>
+          )}
           <button
             disabled={state.submitting}
             className="justify-self-start rounded-full bg-ink px-6 py-3 text-[15px] font-medium text-paper transition-transform hover:-translate-y-0.5 disabled:opacity-60"
           >
-            {state.submitting ? "Sending…" : "Send message"}
+            {state.submitting ? "Sending…" : failed ? "Try again" : "Send message"}
           </button>
         </form>
       )}
@@ -419,14 +371,22 @@ export const Home = () => {
   const pointerRef = useRef({ x: 0, y: 0 });
   // Last time the visitor did something (plus the intro), for the adaptive frame rate
   const activityRef = useRef(performance.now() + 5000);
+  // The avatar turns around to look at you: while hovered, or until `until` (ms timestamp)
+  const attentionRef = useRef({ value: 0, until: 0, hold: false });
+  // How he feels, until `until`: excited (a project picked), interested (you're writing to him),
+  // love (your message arrived) or upset (it didn't). SeatRig eases the weights.
+  const moodRef = useRef({
+    name: null,
+    until: 0,
+    at: 0,
+    weights: { excited: 0, interested: 0, love: 0, upset: 0, annoyed: 0, startled: 0 },
+  });
+  const pokes = useRef({ hover: 0, click: 0 });
+  const [mood, setMood] = useState(null); // the little drawings next to his head
+  const moodTimers = useRef([]);
   const [active, setActive] = useState(0);
-  // Lights: automatic (evening after 7pm in Tunis, and in the contact section) until the visitor
-  // uses the switch; from then on the switch decides.
-  const [lightChoice, setLightChoice] = useState(null);
-  const tunisEvening = useMemo(() => {
-    const hour = Number(new Intl.DateTimeFormat("en-GB", { hour: "2-digit", hour12: false, timeZone: "Africa/Tunis" }).format(new Date()));
-    return hour >= 19 || hour < 6;
-  }, []);
+  const { evening, toggle: toggleEvening } = useLights();
+  const setSceneEvening = useSetAtom(sceneEveningAtom);
   const [sceneReady, setSceneReady] = useState(false);
   const [dpr, setDpr] = useState(() => Math.min(1.5, window.devicePixelRatio));
   const lenisRef = useRef(null);
@@ -488,29 +448,43 @@ export const Home = () => {
     }
   }, []);
 
-  // Scroll position → camera progress (a float across sections) and the active section
+  // Scroll position → camera progress (a float across sections) and the active section.
+  // Section positions are measured only when the layout changes: reading them on every scroll
+  // event, right after the 3D loop has moved things on the page, forced a synchronous layout and
+  // dropped frames.
   useEffect(() => {
+    let sections = [];
+    let vh = window.innerHeight;
+    const measure = () => {
+      vh = window.innerHeight;
+      sections = sectionEls.current.map((el) => (el ? { top: el.offsetTop, height: el.offsetHeight } : null));
+    };
     const onScroll = () => {
       activityRef.current = performance.now();
       const y = window.scrollY;
-      const vh = window.innerHeight;
-      const els = sectionEls.current;
       let p = 0;
       let current = 0;
-      els.forEach((el, i) => {
-        if (!el) return;
-        if (y >= el.offsetTop - 1) p = i + Math.min(1, (y - el.offsetTop) / el.offsetHeight);
-        if (y + vh * 0.5 >= el.offsetTop) current = i;
+      sections.forEach((s, i) => {
+        if (!s) return;
+        if (y >= s.top - 1) p = i + Math.min(1, (y - s.top) / s.height);
+        if (y + vh * 0.5 >= s.top) current = i;
       });
-      progressRef.current = Math.min(p, els.length - 1);
+      progressRef.current = Math.min(p, sections.length - 1);
       setActive(current);
     };
-    onScroll();
+    const relayout = () => {
+      measure();
+      onScroll();
+    };
+    relayout();
+    const observer = new ResizeObserver(relayout);
+    sectionEls.current.forEach((el) => el && observer.observe(el));
     window.addEventListener("scroll", onScroll, { passive: true });
-    window.addEventListener("resize", onScroll);
+    window.addEventListener("resize", relayout);
     return () => {
+      observer.disconnect();
       window.removeEventListener("scroll", onScroll);
-      window.removeEventListener("resize", onScroll);
+      window.removeEventListener("resize", relayout);
     };
   }, []);
 
@@ -526,9 +500,45 @@ export const Home = () => {
     return () => window.removeEventListener("pointermove", onMove);
   }, []);
 
-  // The room goes to evening light in the contact section, or when the switch says so
-  const evening = lightChoice ?? (tunisEvening || active === 4);
-  const toggleEvening = () => setLightChoice(!evening);
+  // The room, and the whole site with it, goes to evening light in the contact section (unless
+  // the switch says otherwise, see lib/theme.js)
+  useEffect(() => setSceneEvening(active === 4), [active]);
+  useEffect(() => () => setSceneEvening(false), []);
+
+  const feel = useCallback((name, ms, { look = false, line = MOOD_LINES[name] } = {}) => {
+    const now = performance.now();
+    const m = moodRef.current;
+    if (m.name !== name || now > m.until) m.at = now; // a new feeling starts over; the same one lasts longer
+    m.name = name;
+    m.until = now + ms;
+    if (look) attentionRef.current.until = Math.max(attentionRef.current.until, now + ms);
+    activityRef.current = Math.max(activityRef.current, now + ms);
+    setMood((prev) => (prev && !prev.leaving && prev.name === name && prev.line === line ? prev : { name, line }));
+    moodTimers.current.forEach(clearTimeout);
+    moodTimers.current = [
+      setTimeout(() => setMood((prev) => prev && { ...prev, leaving: true }), ms - 450),
+      setTimeout(() => setMood(null), ms),
+    ];
+  }, []);
+  useEffect(() => () => moodTimers.current.forEach(clearTimeout), []);
+
+  // Browsing the work: every project he gets to show off makes him a little excited
+  useEffect(() => {
+    if (active === 3) feel("excited", 2600, { line: EXCITED_LINES[selected % EXCITED_LINES.length] });
+  }, [active, selected]);
+
+  // The contact section: he turns around in his chair and stays with you while it's on screen
+  useEffect(() => {
+    if (active !== 4) {
+      attentionRef.current.hold = false;
+      return;
+    }
+    const id = setTimeout(() => {
+      attentionRef.current.hold = true;
+      activityRef.current = performance.now() + 4000;
+    }, 600);
+    return () => clearTimeout(id);
+  }, [active]);
   useEffect(() => {
     nightRef.current = evening ? 1 : 0;
   }, [evening]);
@@ -558,9 +568,28 @@ export const Home = () => {
 
   const setRef = (i) => (el) => (sectionEls.current[i] = el);
 
+  // Bothering him while he works. Hovering: a side-eye and "not now". Clicking: he jumps, turns
+  // round cross and waves you off, then gets back to it. The warmer moments (your message, the
+  // hello in contact) aren't interrupted by a passing pointer.
+  const onAvatarHover = () => {
+    const m = moodRef.current;
+    const busy = performance.now() < m.until;
+    if (attentionRef.current.hold) return; // in contact he's all yours
+    if (busy && m.name !== "annoyed" && m.name !== "excited") return;
+    if (!busy || m.name !== "annoyed") pokes.current.hover++;
+    feel("annoyed", 2400, { line: ANNOYED_LINES[pokes.current.hover % ANNOYED_LINES.length] });
+  };
+  const poke = () => {
+    const m = moodRef.current;
+    if (performance.now() < m.until && m.name === "startled") return;
+    pokes.current.click++;
+    feel("startled", 3600, { look: true, line: STARTLED_LINES[(pokes.current.click - 1) % STARTLED_LINES.length] });
+  };
+
   // Clicking things in the room
   const onRoomAction = (action) => {
     if (action === "lights") toggleEvening();
+    else if (action === "poke") poke();
     else jump(SECTIONS.findIndex((x) => x.id === action));
   };
 
@@ -592,9 +621,12 @@ export const Home = () => {
               nightRef={nightRef}
               screenRef={screenRef}
               pointerRef={pointerRef}
+              attentionRef={attentionRef}
+              moodRef={moodRef}
               onAction={onRoomAction}
+              onAvatarHover={onAvatarHover}
             />
-            <AvatarTracker targetId="avatar-note" visibleRef={progressRef} />
+            <AvatarTracker noteId="avatar-note" moodId="avatar-mood" visibleRef={progressRef} />
           </Suspense>
         </Canvas>
       </div>
@@ -619,6 +651,8 @@ export const Home = () => {
         </div>
       </div>
 
+      <MoodMarks mood={mood} />
+
       {/* Label for clickable things in the room */}
       <div
         id="room-tip"
@@ -627,7 +661,7 @@ export const Home = () => {
       />
 
       <RoomLoader onDone={() => setSceneReady(true)} />
-      <Nav active={active} onJump={jump} evening={evening} toggleEvening={toggleEvening} />
+      <SiteNav active={active} onJump={jump} />
 
       <main className="pointer-events-none relative z-20">
         <Section index={0} innerRef={setRef(0)}>
@@ -643,7 +677,7 @@ export const Home = () => {
           <Work selected={selected} setSelected={setSelected} openProject={openProject} />
         </Section>
         <Section index={4} innerRef={setRef(4)} className="pb-16">
-          <Contact mailRef={mailRef} />
+          <Contact mailRef={mailRef} feel={feel} />
         </Section>
       </main>
     </div>
