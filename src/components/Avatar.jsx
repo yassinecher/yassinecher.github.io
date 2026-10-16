@@ -26,14 +26,25 @@ const LOOK_CHAIN = [
 const UP = new THREE.Vector3(0, 1, 0);
 // The face looks along the head bone's own +z (measured: the eyes sit along +z and +y)
 const FACE = new THREE.Vector3(0, 0, 1);
-const NO_MOOD = { excited: 0, interested: 0, love: 0, upset: 0, annoyed: 0, startled: 0 };
+const NO_MOOD = { excited: 0, interested: 0, love: 0, upset: 0, annoyed: 0, startled: 0, reading: 0 };
 // Shoulder, elbow and wrist of each arm, for reaching: hands onto his thighs when he turns to
-// you, and the right one up to shoo you away when you poke him
+// you, and the right one up for "one moment" when you poke him
 const ARMS = {
   Left: ["LeftArm", "LeftForeArm", "LeftHand"],
   Right: ["RightArm", "RightForeArm", "RightHand"],
 };
 const smoothstep = (edge0, edge1, x) => THREE.MathUtils.smoothstep(x, edge0, edge1);
+
+// Hands, as measured on this rig: each finger joint bends about its own x axis (positive toward
+// the palm), the fingers run along the hand's +y and the palm faces its +z.
+const FINGERS = ["Thumb", "Index", "Middle", "Ring", "Pinky"];
+const X_AXIS = new THREE.Vector3(1, 0, 0);
+const HAND_SHAPES = {
+  // resting on his thighs: loose, gently bent
+  relaxed: { Thumb: [0.1, 0.15, 0.1], Index: [0.15, 0.2, 0.12], Middle: [0.2, 0.25, 0.15], Ring: [0.25, 0.3, 0.15], Pinky: [0.3, 0.3, 0.15] },
+  // "one moment": index finger up, the others folded in
+  oneMoment: { Thumb: [0.35, 0.55, 0.45], Index: [0, 0, 0], Middle: [1.35, 1.45, 0.9], Ring: [1.4, 1.45, 0.9], Pinky: [1.45, 1.35, 0.9] },
+};
 
 export function Avatar(props) {
   const { animation, wireframe, pose = {}, calm = { weight: 0, time: 0, speed: 1 }, hands, attentionRef, moodRef } = props;
@@ -58,6 +69,24 @@ export function Avatar(props) {
     return clip;
   }, [clips]);
 
+  // Each finger joint's rest rotation (from the bind pose), so hand shapes are bends from rest
+  const fingerRest = useMemo(() => {
+    const skeleton = nodes.Wolf3D_Body.skeleton;
+    const bind = new Map(skeleton.bones.map((bone, i) => [bone.name, new THREE.Matrix4().copy(skeleton.boneInverses[i]).invert()]));
+    const rest = {};
+    for (const side of ["Left", "Right"])
+      for (const finger of FINGERS)
+        for (let joint = 1; joint <= 3; joint++) {
+          const name = `${side}Hand${finger}${joint}`;
+          const bone = nodes[name];
+          if (!bone || !bind.has(name) || !bind.has(bone.parent.name)) continue;
+          const local = new THREE.Matrix4().copy(bind.get(bone.parent.name)).invert().multiply(bind.get(name));
+          rest[name] = new THREE.Quaternion();
+          local.decompose(new THREE.Vector3(), rest[name], new THREE.Vector3());
+        }
+    return rest;
+  }, [nodes]);
+
   const lean = useRef(0);
   const playing = useRef({ typing: null, anchor: null });
   const tmp = useMemo(
@@ -67,6 +96,10 @@ export function Avatar(props) {
       v: [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()],
       q: [new THREE.Quaternion(), new THREE.Quaternion(), new THREE.Quaternion(), new THREE.Quaternion(), new THREE.Quaternion()],
       target: new THREE.Vector3(),
+      basis: [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()],
+      matrix: new THREE.Matrix4(),
+      fingersDir: new THREE.Vector3(),
+      palmDir: new THREE.Vector3(),
       side: new THREE.Vector3(),
       toward: new THREE.Vector3(),
       before: [new THREE.Quaternion(), new THREE.Quaternion()],
@@ -89,6 +122,32 @@ export function Avatar(props) {
     applied: {},
     touched: new Set([...LOOK_CHAIN.map(([name]) => name), ...ARMS.Left, ...ARMS.Right]),
   });
+  useMemo(() => {
+    for (const name of Object.keys(fingerRest)) offsetState.current.touched.add(name);
+  }, [fingerRest]);
+
+  // Bends a hand's fingers toward one of HAND_SHAPES, by `weight`
+  const shapeHand = (side, shape, weight) => {
+    const target = tmp.q[0];
+    for (const finger of FINGERS)
+      for (let joint = 1; joint <= 3; joint++) {
+        const name = `${side}Hand${finger}${joint}`;
+        if (!fingerRest[name]) continue;
+        target.setFromAxisAngle(X_AXIS, HAND_SHAPES[shape][finger][joint - 1]).premultiply(fingerRest[name]);
+        nodes[name].quaternion.slerp(target, weight);
+      }
+  };
+  // Turns a hand so its fingers point along `fingers` and its palm faces `palm` (world), by `weight`
+  const orientHand = (side, fingers, palm, weight) => {
+    const hand = nodes[`${side}Hand`];
+    const [y, z, x] = [tmp.basis[0].copy(fingers).normalize(), tmp.basis[1].copy(palm), tmp.basis[2]];
+    z.addScaledVector(y, -z.dot(y)).normalize();
+    x.crossVectors(y, z);
+    const [desired, parent] = tmp.q;
+    desired.setFromRotationMatrix(tmp.matrix.makeBasis(x, y, z));
+    hand.parent.getWorldQuaternion(parent).invert();
+    hand.quaternion.slerp(parent.multiply(desired), weight);
+  };
 
   // Turns `bone` so the face swings `share` of the way toward `target`: around the vertical first,
   // then up or down, so the head stays upright instead of rolling. World space: the room is level
@@ -166,7 +225,7 @@ export function Avatar(props) {
     // Paying attention (or thinking): the typing holds on the calm frame
     const { typing, anchor } = playing.current;
     if (typing && anchor) {
-      const live = (1 - calm.weight) * (1 - handsOff) * (1 - 0.85 * r.pause);
+      const live = (1 - calm.weight) * (1 - handsOff) * (1 - 0.85 * r.pause) * (1 - w.reading);
       typing.setEffectiveWeight(live);
       anchor.setEffectiveWeight(1 - live);
       typing.timeScale = calm.speed * (1 + 0.7 * w.excited + 0.5 * w.annoyed); // excited or annoyed: faster
@@ -220,16 +279,23 @@ export function Avatar(props) {
       add(after, "Head", 0.22 * u, Math.sin(t * 7) * 0.3 * Math.max(0, 1 - t / 2.6) * u);
     }
 
-    // Poked (clicked): a jolt, then he turns on you, cross, and shoos you away
+    // Poked (clicked): a small start, then he turns to you, smiles and raises a finger: one moment
     const ts = mood?.name === "startled" ? t : Infinity; // time since the poke
     const jolt = w.startled > 0.01 ? Math.exp(-((ts - 0.16) ** 2) / 0.012) * Math.min(1, w.startled * 1.5) : 0;
-    const shoo = smoothstep(0.55, 0.95, ts) * (1 - smoothstep(2.6, 3.1, ts)) * w.startled;
+    const oneMoment = smoothstep(0.45, 0.9, ts) * (1 - smoothstep(2.3, 2.8, ts)) * w.startled;
     if (jolt > 0.001) {
-      add(offsets, "Spine", -0.14 * jolt);
-      add(offsets, "Spine2", -0.08 * jolt);
-      add(offsets, "LeftShoulder", 0, 0, -0.16 * jolt);
-      add(offsets, "RightShoulder", 0, 0, 0.16 * jolt);
-      add(after, "Head", -0.2 * jolt);
+      add(offsets, "Spine", -0.1 * jolt);
+      add(offsets, "Spine2", -0.05 * jolt);
+      add(offsets, "LeftShoulder", 0, 0, -0.1 * jolt);
+      add(offsets, "RightShoulder", 0, 0, 0.1 * jolt);
+      add(after, "Head", -0.14 * jolt);
+    }
+    if (oneMoment > 0.001) add(after, "Head", 0.05 * oneMoment, 0, 0.07 * oneMoment); // a small, friendly nod
+    // Reading your message as it lands on his monitor (contact): leans in, eyes along the lines
+    if (w.reading > 0.001) {
+      const rd = w.reading;
+      add(offsets, "Spine", 0.06 * rd);
+      add(after, "Head", 0.05 * rd + Math.max(0, Math.sin(t * 0.9)) * 0.03 * rd, Math.sin(t * 1.5) * 0.07 * rd);
     }
     // Hovered (annoyed): a side-eye over his shoulder, then straight back to work
     const ta = mood?.name === "annoyed" ? t : Infinity;
@@ -240,11 +306,11 @@ export function Avatar(props) {
     faceMeshes.current ??= ["Wolf3D_Head", "Wolf3D_Teeth", "EyeLeft", "EyeRight"]
       .map((name) => group.current.getObjectByName(name))
       .filter((mesh) => mesh?.morphTargetDictionary?.mouthSmile !== undefined);
-    const cross = Math.max(w.upset, w.annoyed, w.startled);
+    const cross = Math.max(w.upset, w.annoyed * 0.7);
     const smile =
-      Math.max(0.8 * lookHead, 0.9 * w.excited, 0.6 * w.interested, w.love) * (1 - cross) -
-      0.7 * w.upset - 0.45 * w.annoyed - 0.85 * w.startled;
-    const open = 0.28 * w.excited + 0.16 * w.love + 0.8 * jolt + 0.12 * shoo;
+      Math.max(0.8 * lookHead, 0.9 * w.excited, 0.6 * w.interested, w.love, 0.55 * oneMoment, 0.25 * w.reading) * (1 - cross) -
+      0.7 * w.upset - 0.2 * w.annoyed;
+    const open = 0.28 * w.excited + 0.16 * w.love + 0.6 * jolt;
     for (const mesh of faceMeshes.current) {
       const shapes = mesh.morphTargetDictionary;
       mesh.morphTargetInfluences[shapes.mouthSmile] = smile;
@@ -291,20 +357,26 @@ export function Avatar(props) {
         reach(side, target, lean.current * (1 - handsOff));
       }
     }
-    // Turned toward you, his hands come off the keyboard and rest on his thighs
+    // Turned toward you, his hands come off the keyboard and rest on his thighs: palms down,
+    // fingers along the thigh toward the knee, loose
     if (handsOff > 0.001) {
-      const { target } = tmp;
+      const { target, fingersDir, palmDir } = tmp;
       for (const side of ["Left", "Right"]) {
         const [hip, knee] = tmp.v;
         nodes[`${side}UpLeg`].getWorldPosition(hip);
         nodes[`${side}Leg`].getWorldPosition(knee);
-        target.copy(hip).lerp(knee, 0.62).addScaledVector(UP, 0.16 * length);
+        // The top of the thigh is 0.2 arm-lengths above the leg bone (measured on the trousers);
+        // the wrist sits a hand's thickness above that
+        target.copy(hip).lerp(knee, 0.6).addScaledVector(UP, 0.25 * length);
         reach(side, target, handsOff);
+        fingersDir.copy(knee).sub(hip).normalize().addScaledVector(UP, -0.1);
+        orientHand(side, fingersDir, palmDir.set(0, -1, 0), handsOff);
+        shapeHand(side, "relaxed", handsOff);
       }
     }
-    // The shoo: hand up beside his face, toward you, flapping you away
-    if (shoo > 0.001) {
-      const { target, side, toward } = tmp;
+    // "One moment": right hand up in front of his shoulder, palm to you, index finger raised
+    if (oneMoment > 0.001) {
+      const { target, side, toward, fingersDir } = tmp;
       const [shoulder, otherShoulder] = tmp.v;
       nodes.LeftArm.getWorldPosition(otherShoulder);
       nodes.RightArm.getWorldPosition(shoulder);
@@ -312,11 +384,12 @@ export function Avatar(props) {
       toward.copy(state.camera.position).sub(shoulder).setY(0).normalize();
       target
         .copy(shoulder)
-        .addScaledVector(toward, 0.55 * length)
-        .addScaledVector(UP, 0.22 * length)
-        .addScaledVector(side, (0.32 + Math.sin(t * 11) * 0.12) * length);
-      reach("Right", target, shoo);
-      nodes.RightHand.rotateX(Math.sin(t * 11 - 0.6) * 0.45 * shoo);
+        .addScaledVector(toward, 0.36 * length)
+        .addScaledVector(UP, -0.04 * length)
+        .addScaledVector(side, 0.04 * length);
+      reach("Right", target, oneMoment);
+      orientHand("Right", fingersDir.copy(UP).addScaledVector(toward, 0.3), toward, oneMoment);
+      shapeHand("Right", "oneMoment", oneMoment);
     }
     for (const [name, [x, y, z]] of Object.entries(after)) {
       const bone = nodes[name];

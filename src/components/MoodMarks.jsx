@@ -30,7 +30,7 @@ const Drawing = ({ name }) => {
         <path d="M36 34 L48 20" style={{ "--d": "0.16s" }} />
       </svg>
     );
-  if (name === "interested")
+  if (name === "interested" || name === "reading")
     return (
       <span className="absolute left-1 bottom-8 flex gap-1.5 text-ink">
         {[0, 0.15, 0.3].map((d) => (
@@ -46,11 +46,11 @@ const Drawing = ({ name }) => {
     );
   if (name === "startled")
     return (
-      <svg viewBox="0 0 64 48" fill="none" className="mood-draw mood-shake absolute -left-2 bottom-7 h-12 w-16 text-accent" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round">
-        {/* the cross little "vein" mark, and an exclamation */}
-        <path d="M8 14c5 1 7 3 8 8M30 14c-5 1-7 3-8 8M8 34c5-1 7-3 8-8M30 34c-5-1-7-3-8-8" style={{ "--d": "0s", "--len": 30 }} />
-        <path d="M48 6 L46 30" style={{ "--d": "0.15s" }} />
-        <path d="M45.5 40 L45.4 40.5" style={{ "--d": "0.3s", "--len": 4 }} />
+      <svg viewBox="0 0 64 48" fill="none" className="mood-draw absolute -left-2 bottom-7 h-12 w-16 text-accent" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round">
+        {/* a little start: two quick lines and an exclamation */}
+        <path d="M10 30 L4 22M18 22 L16 12" style={{ "--d": "0s", "--len": 14 }} />
+        <path d="M34 8 L32 30" style={{ "--d": "0.12s" }} />
+        <path d="M31.5 40 L31.4 40.5" style={{ "--d": "0.25s", "--len": 4 }} />
       </svg>
     );
   // upset: a small scribbled storm cloud

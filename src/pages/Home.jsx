@@ -17,10 +17,10 @@ import { homeSectionAtom } from "../state";
 const featured = allProjects.filter((p) => p.featured);
 
 // What he says (in the handwritten note by his head) for each mood
-const MOOD_LINES = { interested: "go on, I'm reading", love: "thank you!", upset: "oh no…", annoyed: "not now…", startled: "not now!" };
+const MOOD_LINES = { interested: "go on…", love: "thank you!", upset: "oh no…", annoyed: "busy, sorry", startled: "one moment!", reading: "reading…" };
 // Hovering him while he works, and poking him (a click)
-const ANNOYED_LINES = ["not now…", "busy, sorry", "after this commit…"];
-const STARTLED_LINES = ["not now!", "hey! I'm coding", "shoo, I'm working!"];
+const ANNOYED_LINES = ["busy, sorry", "one sec…", "after this commit…"];
+const STARTLED_LINES = ["one moment!", "just a sec", "almost done!"];
 const EXCITED_LINES = ["ooh, good pick!", "yes, that one!", "I like this one", "look at this one"];
 
 const projectUrl = (p) => {
@@ -236,20 +236,27 @@ const Contact = ({ mailRef, feel }) => {
       window.location.href = `mailto:${profile.email}`;
     }
   };
-  // Mirror the form onto the monitor in the room. He follows along as you write, with a word for
-  // each field: your name once you've written it, your address, and a long message.
+  // Mirror the form onto the monitor in the room. While you write he's busy with it: back to his
+  // monitor, reading it as it lands there. When you pause he turns to you with a word: your name
+  // once you've written it, your address, a long message.
+  const pause = useRef(0);
+  useEffect(() => () => clearTimeout(pause.current), []);
+  const react = (key, value) => {
+    let line = "go on…";
+    if (key === "name") {
+      const first = value.trim().split(/\s+/)[0].slice(0, 16);
+      line = first.length > 1 ? `nice to meet you, ${first}` : "and you are…?";
+    }
+    if (key === "email") line = value.includes("@") ? "I'll reply there" : "where do I reply?";
+    if (key === "message") line = value.length > 140 ? "ooh, tell me more" : "sounds good, go on";
+    feel("interested", 3200, { look: true, line });
+  };
   const mirror = (key) => (e) => {
     const value = e.target.value;
     mailRef.current[key] = value;
-    let line = "go on, I'm reading";
-    if (key === "name") line = "and you are…?";
-    if (key === "email") line = value.includes("@") ? "I'll reply there" : "where do I reply?";
-    if (key === "message" && value.length > 140) line = "ooh, tell me more";
-    feel("interested", 2800, { look: true, line });
-  };
-  const greet = (e) => {
-    const first = e.target.value.trim().split(/\s+/)[0].slice(0, 16);
-    if (first.length > 1) feel("interested", 3200, { look: true, line: `nice to meet you, ${first}` });
+    feel("reading", 2000);
+    clearTimeout(pause.current);
+    pause.current = setTimeout(() => react(key, value), 2000);
   };
   useEffect(() => {
     mailRef.current.sent = state.succeeded;
@@ -265,6 +272,7 @@ const Contact = ({ mailRef, feel }) => {
     return () => clearTimeout(id);
   }, [state.errors, state.submitting]);
   const submit = (e) => {
+    clearTimeout(pause.current);
     setFailed(false);
     mailRef.current.failed = false;
     handleSubmit(e);
@@ -308,7 +316,7 @@ const Contact = ({ mailRef, feel }) => {
         <p className="mt-8 font-serif text-2xl">Thank you, it just landed on my screen. I'll get back to you soon.</p>
       ) : (
         <form onSubmit={submit} className="mt-8 grid gap-4 sm:grid-cols-2">
-          <input aria-label="Name" name="name" required placeholder="Your name" className={field} onChange={mirror("name")} onBlur={greet} />
+          <input aria-label="Name" name="name" required placeholder="Your name" className={field} onChange={mirror("name")} />
           <input aria-label="Email" type="email" name="email" required placeholder="Your email" className={field} onChange={mirror("email")} />
           <textarea aria-label="Message" name="message" required rows={3} placeholder="What are you working on?" className={`${field} sm:col-span-2 resize-none`} onChange={mirror("message")} />
           <ValidationError className="text-sm text-accent-ink sm:col-span-2" errors={state.errors} />
@@ -379,7 +387,7 @@ export const Home = () => {
     name: null,
     until: 0,
     at: 0,
-    weights: { excited: 0, interested: 0, love: 0, upset: 0, annoyed: 0, startled: 0 },
+    weights: { excited: 0, interested: 0, love: 0, upset: 0, annoyed: 0, startled: 0, reading: 0 },
   });
   const pokes = useRef({ hover: 0, click: 0 });
   const [mood, setMood] = useState(null); // the little drawings next to his head
@@ -574,7 +582,9 @@ export const Home = () => {
   const onAvatarHover = () => {
     const m = moodRef.current;
     const busy = performance.now() < m.until;
-    if (attentionRef.current.hold) return; // in contact he's all yours
+    // Reading your message, he's busy too; otherwise in contact he's all yours
+    if (busy && m.name === "reading") return feel("annoyed", 2000, { line: "one sec, reading it" });
+    if (attentionRef.current.hold) return;
     if (busy && m.name !== "annoyed" && m.name !== "excited") return;
     if (!busy || m.name !== "annoyed") pokes.current.hover++;
     feel("annoyed", 2400, { line: ANNOYED_LINES[pokes.current.hover % ANNOYED_LINES.length] });

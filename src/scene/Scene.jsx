@@ -98,7 +98,7 @@ export const SEAT = {
   scale: 0.945 / 0.44,
   // Where his wrists rest on the keyboard (room coordinates); reached by IK, so they stay on the
   // keys whatever his size and the swivel of the chair
-  hands: { Left: [-0.1, 2.14, -3.3], Right: [0.45, 2.155, -3.49] },
+  hands: { Left: [-0.04, 2.14, -3.31], Right: [0.26, 2.145, -3.34] },
   // Measured against the desk (top y 1.9), seat (y 1.6) and keyboard (x -0.3..0.5, z -3.75..-3.45):
   // a slight lean, fingertips resting on the keys (they only dip in on a key press), head up
   // toward the monitor, thighs under the desk, feet flat on the floor.
@@ -165,7 +165,7 @@ const NIGHT_SKY = new THREE.Color("#b7b0d6");
 // comes round last, and the hands leave the keys once he's looking. Going back, the head returns to
 // the screen first and the hands find the keys a beat later. Each part is a critically damped
 // spring (ease in and out), not an exponential snap.
-const MOODS = ["excited", "interested", "love", "upset", "annoyed", "startled"];
+const MOODS = ["excited", "interested", "love", "upset", "annoyed", "startled", "reading"];
 const PARTS = {
   // seconds to settle: [turning to you, going back]; a poke makes him spin round fast
   head: [0.3, 0.32],
@@ -207,7 +207,8 @@ const SeatRig = ({ swivelRef, attentionRef, moodRef, colliderRef }) => {
     const a = attentionRef.current;
     const mood = moodRef.current;
     const current = now < mood.until ? mood.name : null;
-    const busy = a.hold || now < a.until;
+    // Reading your message on his monitor wins over looking at you
+    const busy = current !== "reading" && (a.hold || now < a.until);
     const startled = current === "startled";
     for (const [part, [toYou, back]] of Object.entries(PARTS)) {
       smoothDamp(a, part, busy ? 1 : 0, busy ? (startled ? toYou * 0.4 : toYou) : back, dt);
