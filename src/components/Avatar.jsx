@@ -39,6 +39,10 @@ const smoothstep = (edge0, edge1, x) => THREE.MathUtils.smoothstep(x, edge0, edg
 // the palm), the fingers run along the hand's +y and the palm faces its +z.
 const FINGERS = ["Thumb", "Index", "Middle", "Ring", "Pinky"];
 const X_AXIS = new THREE.Vector3(1, 0, 0);
+// Typing: on top of the clip, fingers curved over the keys and the wrist bent a little, so the
+// fingertips meet the keys with the wrists off them (instead of flat hands on the keyboard)
+const TYPING_CURL = [0.22, 0.28, 0.16];
+const TYPING_FLEX = 0.15;
 const HAND_SHAPES = {
   // resting on his thighs: loose, gently bent
   relaxed: { Thumb: [0.1, 0.15, 0.1], Index: [0.15, 0.2, 0.12], Middle: [0.2, 0.25, 0.15], Ring: [0.25, 0.3, 0.15], Pinky: [0.3, 0.3, 0.15] },
@@ -103,6 +107,10 @@ export function Avatar(props) {
       side: new THREE.Vector3(),
       toward: new THREE.Vector3(),
       before: [new THREE.Quaternion(), new THREE.Quaternion()],
+      ik: [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()],
+      pole: new THREE.Vector3(),
+      right: new THREE.Vector3(),
+      forward: new THREE.Vector3(),
       solved: new THREE.Quaternion(),
     }),
     []
@@ -171,8 +179,63 @@ export function Avatar(props) {
     bone.quaternion.copy(parent.multiply(turn).multiply(scratch));
   };
 
+  // Rotates `bone` (about `pivot`, world) so the point `from` swings onto the line toward `to`
+  const swing = (bone, pivot, from, to) => {
+    const [turn, parent, world] = tmp.q;
+    const [a, b] = tmp.ik;
+    a.copy(from).sub(pivot).normalize();
+    b.copy(to).sub(pivot).normalize();
+    turn.setFromUnitVectors(a, b);
+    bone.getWorldQuaternion(world);
+    bone.parent.getWorldQuaternion(parent).invert();
+    bone.quaternion.copy(parent.multiply(turn).multiply(world));
+  };
+  // Puts a hand at `target` with the elbow bending toward `pole` (an exact two-bone solve), blended
+  // in by `amount`. Where the elbow goes is what makes an arm look natural or broken.
+  const place = (side, target, pole, amount) => {
+    const [arm, fore, hand] = ARMS[side].map((name) => nodes[name]);
+    const [, , toTarget, bend, elbow, shoulder] = tmp.ik;
+    const [armBefore, foreBefore] = tmp.before;
+    armBefore.copy(arm.quaternion);
+    foreBefore.copy(fore.quaternion);
+    arm.getWorldPosition(shoulder);
+    const upper = shoulder.distanceTo(fore.getWorldPosition(elbow));
+    const lower = elbow.distanceTo(hand.getWorldPosition(tmp.v[0]));
+    toTarget.copy(target).sub(shoulder);
+    const distance = THREE.MathUtils.clamp(toTarget.length(), Math.abs(upper - lower) + 1e-3, upper + lower - 1e-3);
+    toTarget.normalize();
+    const cos = THREE.MathUtils.clamp((upper * upper + distance * distance - lower * lower) / (2 * upper * distance), -1, 1);
+    bend.copy(pole).sub(shoulder);
+    bend.addScaledVector(toTarget, -bend.dot(toTarget)).normalize();
+    const wantElbow = tmp.v[1].copy(shoulder).addScaledVector(toTarget, upper * cos).addScaledVector(bend, upper * Math.sqrt(1 - cos * cos));
+    swing(arm, shoulder, elbow, wantElbow);
+    fore.getWorldPosition(elbow);
+    swing(fore, elbow, hand.getWorldPosition(tmp.v[2]), target);
+    tmp.solved.copy(arm.quaternion);
+    arm.quaternion.slerpQuaternions(armBefore, tmp.solved, amount);
+    tmp.solved.copy(fore.quaternion);
+    fore.quaternion.slerpQuaternions(foreBefore, tmp.solved, amount);
+  };
+  // His own right and forward (from the shoulders), and a pole for an elbow: down by his side,
+  // a little behind and out
+  const body = () => {
+    const { right, forward } = tmp;
+    nodes.RightArm.getWorldPosition(right).sub(nodes.LeftArm.getWorldPosition(tmp.v[3])).setY(0).normalize();
+    forward.crossVectors(UP, right).normalize();
+    return { right, forward };
+  };
+  const elbowPole = (side, back, out) => {
+    const { right, forward } = body();
+    return nodes[`${side}Arm`]
+      .getWorldPosition(tmp.pole)
+      .addScaledVector(UP, -1)
+      .addScaledVector(forward, -back)
+      .addScaledVector(right, side === "Right" ? out : -out);
+  };
+
   // Moves a hand toward `target` (a two-bone reach: shoulder, then elbow), blended in by `amount`
-  // so the arm eases out of whatever pose it was in.
+  // so the arm eases out of whatever pose it was in. Used for typing, where the clip's own elbows
+  // are already right and only need nudging.
   const reach = (side, target, amount) => {
     const [arm, fore, hand] = ARMS[side].map((name) => nodes[name]);
     const [bonePos, handPos, toHand, toTarget] = tmp.v;
@@ -228,7 +291,7 @@ export function Avatar(props) {
       const live = (1 - calm.weight) * (1 - handsOff) * (1 - 0.85 * r.pause) * (1 - w.reading);
       typing.setEffectiveWeight(live);
       anchor.setEffectiveWeight(1 - live);
-      typing.timeScale = calm.speed * (1 + 0.7 * w.excited + 0.5 * w.annoyed); // excited or annoyed: faster
+      typing.timeScale = calm.speed * (1 + 0.35 * w.excited + 0.5 * w.annoyed); // excited or annoyed: faster
     }
 
     const { offsets, after } = tmp;
@@ -249,11 +312,13 @@ export function Avatar(props) {
     add(after, "Head", -0.07 * r.pause * (1 - lookHead));
 
     if (attention > 0.001) add(offsets, "Spine", -0.12 * attention); // sit up a little
-    // Excited (a project picked): sits up and bounces a little in the chair
+    // Excited (a project picked): leans in toward the screen and gives it one sure nod
     if (w.excited > 0.001) {
       const e = w.excited;
-      add(offsets, "Spine", (-0.06 - Math.abs(Math.sin(t * 6.5)) * 0.035) * e);
-      add(after, "Head", (-0.05 + Math.sin(t * 13) * 0.03) * e);
+      const te = mood?.name === "excited" ? t : Infinity;
+      const nod = Math.sin((Math.min(te, 0.75) / 0.75) * Math.PI) * 0.09;
+      add(offsets, "Spine", 0.04 * e);
+      add(after, "Head", (nod - 0.03) * e);
     }
     // Interested (the visitor is writing to him): leans in, head tilted, slow nods
     if (w.interested > 0.001) {
@@ -360,16 +425,22 @@ export function Avatar(props) {
     // Turned toward you, his hands come off the keyboard and rest on his thighs: palms down,
     // fingers along the thigh toward the knee, loose
     if (handsOff > 0.001) {
-      const { target, fingersDir, palmDir } = tmp;
+      const { target, fingersDir, palmDir, side: across } = tmp;
       for (const side of ["Left", "Right"]) {
-        const [hip, knee] = tmp.v;
+        const [hip, knee, otherHip, elbow] = tmp.v;
         nodes[`${side}UpLeg`].getWorldPosition(hip);
         nodes[`${side}Leg`].getWorldPosition(knee);
+        nodes[`${side === "Left" ? "Right" : "Left"}UpLeg`].getWorldPosition(otherHip);
+        across.copy(otherHip).sub(hip).setY(0);
         // The top of the thigh is 0.2 arm-lengths above the leg bone (measured on the trousers);
-        // the wrist sits a hand's thickness above that
-        target.copy(hip).lerp(knee, 0.6).addScaledVector(UP, 0.25 * length);
-        reach(side, target, handsOff);
-        fingersDir.copy(knee).sub(hip).normalize().addScaledVector(UP, -0.1);
+        // the wrist sits a hand's thickness above that, on top of the leg rather than its side
+        target.copy(hip).lerp(knee, 0.6).addScaledVector(UP, 0.25 * length).addScaledVector(across, 0.12);
+        const thigh = tmp.toward.copy(knee).sub(hip).normalize(); // (reach reuses tmp.v)
+        // Elbow down by his side and a little back: the forearm then lies along the thigh
+        place(side, target, elbowPole(side, 0.6, 0.25), handsOff);
+        // The hand carries on from the forearm onto the thigh: a straight, relaxed wrist
+        nodes[`${side}ForeArm`].getWorldPosition(elbow);
+        fingersDir.copy(target).sub(elbow).normalize().multiplyScalar(0.45).addScaledVector(thigh, 0.55);
         orientHand(side, fingersDir, palmDir.set(0, -1, 0), handsOff);
         shapeHand(side, "relaxed", handsOff);
       }
@@ -381,15 +452,25 @@ export function Avatar(props) {
       nodes.LeftArm.getWorldPosition(otherShoulder);
       nodes.RightArm.getWorldPosition(shoulder);
       side.copy(shoulder).sub(otherShoulder).setY(0).normalize();
-      toward.copy(state.camera.position).sub(shoulder).setY(0).normalize();
+      // In front of his own chest (his forward, not the camera's), below the chin, palm to you
+      const forward = tmp.palmDir.crossVectors(UP, side).normalize();
       target
         .copy(shoulder)
-        .addScaledVector(toward, 0.36 * length)
-        .addScaledVector(UP, -0.04 * length)
-        .addScaledVector(side, 0.04 * length);
-      reach("Right", target, oneMoment);
-      orientHand("Right", fingersDir.copy(UP).addScaledVector(toward, 0.3), toward, oneMoment);
+        .addScaledVector(forward, 0.42 * length)
+        .addScaledVector(UP, -0.2 * length)
+        .addScaledVector(side, 0.02 * length);
+      place("Right", target, elbowPole("Right", 0.1, 0.55), oneMoment);
+      toward.copy(state.camera.position).sub(target).setY(0).normalize().add(forward).normalize();
+      orientHand("Right", fingersDir.copy(UP).addScaledVector(forward, 0.15), toward, oneMoment);
       shapeHand("Right", "oneMoment", oneMoment);
+    }
+    const typingHands = lean.current * (1 - handsOff);
+    if (typingHands > 0.001) {
+      for (const side of ["Left", "Right"]) {
+        nodes[`${side}Hand`].rotateX(TYPING_FLEX * typingHands);
+        for (const finger of FINGERS.slice(1))
+          for (let joint = 1; joint <= 3; joint++) nodes[`${side}Hand${finger}${joint}`]?.rotateX(TYPING_CURL[joint - 1] * typingHands);
+      }
     }
     for (const [name, [x, y, z]] of Object.entries(after)) {
       const bone = nodes[name];

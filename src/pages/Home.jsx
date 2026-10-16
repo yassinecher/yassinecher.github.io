@@ -17,11 +17,24 @@ import { homeSectionAtom } from "../state";
 const featured = allProjects.filter((p) => p.featured);
 
 // What he says (in the handwritten note by his head) for each mood
-const MOOD_LINES = { interested: "go on…", love: "thank you!", upset: "oh no…", annoyed: "busy, sorry", startled: "one moment!", reading: "reading…" };
+const MOOD_LINES = {
+  interested: "go on…",
+  love: "got it, thank you!",
+  upset: "that didn't go through",
+  annoyed: "almost done here",
+  startled: "one moment!",
+  reading: "reading…",
+};
 // Hovering him while he works, and poking him (a click)
-const ANNOYED_LINES = ["busy, sorry", "one sec…", "after this commit…"];
-const STARTLED_LINES = ["one moment!", "just a sec", "almost done!"];
-const EXCITED_LINES = ["ooh, good pick!", "yes, that one!", "I like this one", "look at this one"];
+const ANNOYED_LINES = ["almost done here", "after this commit…", "in the zone, one sec"];
+const STARTLED_LINES = ["one moment!", "be right with you", "just finishing this"];
+// Showing a project: something true about it, from the project data
+const excitedLine = (project, count) => {
+  const live = project.links.some((link) => /live/i.test(link.label));
+  const lines = [live ? "it's live, go try it" : null, `${project.stack[0]} + ${project.stack[1]}`, "ask me about this one"];
+  const usable = lines.filter(Boolean);
+  return usable[count % usable.length];
+};
 
 const projectUrl = (p) => {
   const link = p.links.find((l) => l.label.toLowerCase().includes("live")) || p.links[0];
@@ -245,10 +258,10 @@ const Contact = ({ mailRef, feel }) => {
     let line = "go on…";
     if (key === "name") {
       const first = value.trim().split(/\s+/)[0].slice(0, 16);
-      line = first.length > 1 ? `nice to meet you, ${first}` : "and you are…?";
+      line = first.length > 1 ? `nice to meet you, ${first}` : "and your name is…?";
     }
-    if (key === "email") line = value.includes("@") ? "I'll reply there" : "where do I reply?";
-    if (key === "message") line = value.length > 140 ? "ooh, tell me more" : "sounds good, go on";
+    if (key === "email") line = value.includes("@") ? "I'll reply there" : "where should I reply?";
+    if (key === "message") line = value.length > 140 ? "tell me more" : "sounds interesting";
     feel("interested", 3200, { look: true, line });
   };
   const mirror = (key) => (e) => {
@@ -532,7 +545,7 @@ export const Home = () => {
 
   // Browsing the work: every project he gets to show off makes him a little excited
   useEffect(() => {
-    if (active === 3) feel("excited", 2600, { line: EXCITED_LINES[selected % EXCITED_LINES.length] });
+    if (active === 3) feel("excited", 2600, { line: excitedLine(featured[selected], selected) });
   }, [active, selected]);
 
   // The contact section: he turns around in his chair and stays with you while it's on screen
@@ -583,7 +596,7 @@ export const Home = () => {
     const m = moodRef.current;
     const busy = performance.now() < m.until;
     // Reading your message, he's busy too; otherwise in contact he's all yours
-    if (busy && m.name === "reading") return feel("annoyed", 2000, { line: "one sec, reading it" });
+    if (busy && m.name === "reading") return feel("annoyed", 2000, { line: "one sec, reading this" });
     if (attentionRef.current.hold) return;
     if (busy && m.name !== "annoyed" && m.name !== "excited") return;
     if (!busy || m.name !== "annoyed") pokes.current.hover++;
@@ -593,6 +606,9 @@ export const Home = () => {
     const m = moodRef.current;
     if (performance.now() < m.until && m.name === "startled") return;
     pokes.current.click++;
+    // Out of the way of his face while he answers (it comes back when the pointer does)
+    const tip = document.getElementById("room-tip");
+    if (tip) tip.dataset.show = "false";
     feel("startled", 3600, { look: true, line: STARTLED_LINES[(pokes.current.click - 1) % STARTLED_LINES.length] });
   };
 

@@ -98,7 +98,7 @@ export const SEAT = {
   scale: 0.945 / 0.44,
   // Where his wrists rest on the keyboard (room coordinates); reached by IK, so they stay on the
   // keys whatever his size and the swivel of the chair
-  hands: { Left: [-0.04, 2.14, -3.31], Right: [0.26, 2.145, -3.34] },
+  hands: { Left: [-0.04, 2.185, -3.31], Right: [0.26, 2.19, -3.34] },
   // Measured against the desk (top y 1.9), seat (y 1.6) and keyboard (x -0.3..0.5, z -3.75..-3.45):
   // a slight lean, fingertips resting on the keys (they only dip in on a key press), head up
   // toward the monitor, thighs under the desk, feet flat on the floor.
@@ -224,9 +224,7 @@ const SeatRig = ({ swivelRef, attentionRef, moodRef, colliderRef }) => {
     const toCamera = Math.atan2(camera.position.x - pivot.x, camera.position.z - pivot.z);
     let phi = toCamera - SEAT.rotationY;
     phi = Math.atan2(Math.sin(phi), Math.cos(phi)); // shortest way round
-    // Excited: a happy little swivel from side to side
-    const wiggle = Math.sin(((now - mood.at) / 1000) * 6.5) * 0.08 * mood.weights.excited;
-    swivelRef.current.rotation.y = THREE.MathUtils.clamp(phi * 0.65, -1.2, 1.2) * a.chair + wiggle;
+    swivelRef.current.rotation.y = THREE.MathUtils.clamp(phi * 0.65, -1.2, 1.2) * a.chair;
   });
   return null;
 };
