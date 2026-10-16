@@ -38,6 +38,16 @@ const Drawing = ({ name }) => {
         ))}
       </span>
     );
+  if (name === "greeting")
+    return (
+      <svg viewBox="0 0 64 40" fill="none" className="mood-draw absolute -left-1 bottom-7 h-10 w-16 text-accent" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round">
+        {/* little motion arcs, as for a wave */}
+        <path d="M14 30c-6-6-6-14 0-20" style={{ "--d": "0s", "--len": 30 }} />
+        <path d="M24 26c-3-4-3-8 0-12" style={{ "--d": "0.1s", "--len": 20 }} />
+        <path d="M44 14c3 4 3 8 0 12" style={{ "--d": "0.1s", "--len": 20 }} />
+        <path d="M52 10c6 6 6 14 0 20" style={{ "--d": "0s", "--len": 30 }} />
+      </svg>
+    );
   if (name === "annoyed")
     return (
       <svg viewBox="0 0 64 24" fill="none" className="mood-draw absolute left-0 bottom-7 h-6 w-16 text-ink" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">

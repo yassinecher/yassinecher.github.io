@@ -41,13 +41,29 @@ const pluck = (ctx, frequency) => {
   return buffer;
 };
 
-// E minor, open strings, strummed down
-const CHORD = [82.41, 123.47, 164.81, 196.0, 246.94, 329.63];
+// Four takes, in turn: two strummed chords, a picked arpeggio and a little blues lick.
+// Each note is [frequency, start in seconds, loudness].
+const strummed = (notes, gap = 0.022) => notes.map((f, i) => [f, i * gap, 0.55 + i * 0.05]);
+const TAKES = [
+  strummed([82.41, 123.47, 164.81, 196.0, 246.94, 329.63]), // E minor
+  strummed([98.0, 123.47, 146.83, 196.0, 246.94, 392.0]), // G major
+  [110.0, 164.81, 220.0, 261.63, 329.63, 261.63, 220.0].map((f, i) => [f, i * 0.16, 0.7]), // A minor, picked
+  [
+    [329.63, 0, 0.75],
+    [392.0, 0.18, 0.7],
+    [440.0, 0.34, 0.75],
+    [466.16, 0.46, 0.55],
+    [440.0, 0.56, 0.7],
+    [392.0, 0.74, 0.7],
+    [329.63, 0.92, 0.8],
+  ], // a short blues lick in E
+];
+let take = 0;
 let lastStrum = 0;
 export const strum = () => {
   const ctx = audio();
   const now = performance.now();
-  if (!ctx || now - lastStrum < 1200) return false;
+  if (!ctx || now - lastStrum < 1400) return false;
   lastStrum = now;
   const tone = ctx.createBiquadFilter();
   tone.type = "lowpass";
@@ -55,14 +71,15 @@ export const strum = () => {
   const volume = ctx.createGain();
   volume.gain.value = 0.16;
   tone.connect(volume).connect(ctx.destination);
-  CHORD.forEach((frequency, i) => {
+  for (const [frequency, at, loudness] of TAKES[take]) {
     const source = ctx.createBufferSource();
     source.buffer = pluck(ctx, frequency);
     const gain = ctx.createGain();
-    gain.gain.value = 0.55 + i * 0.05;
+    gain.gain.value = loudness;
     source.connect(gain).connect(tone);
-    source.start(ctx.currentTime + i * 0.022);
-  });
+    source.start(ctx.currentTime + at);
+  }
+  take = (take + 1) % TAKES.length;
   return true;
 };
 

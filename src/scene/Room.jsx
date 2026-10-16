@@ -114,9 +114,12 @@ const liftMug = (mesh, material) => {
   const position = geometry.attributes.position;
   const index = geometry.index;
   const v = new THREE.Vector3();
+  // Above the coaster everything in the cylinder is the mug (body and handle); at coaster height
+  // only the mug's own base, so the coaster stays on the desk
   const inMug = (i) => {
     v.fromBufferAttribute(position, i).applyMatrix4(mesh.matrixWorld);
-    return Math.hypot(v.x - MUG.x, v.z - MUG.z) < MUG_RADIUS && v.y > MUG.y && v.y < MUG_TOP;
+    const r = Math.hypot(v.x - MUG.x, v.z - MUG.z);
+    return v.y < MUG_TOP && ((v.y > MUG.y + 0.02 && r < MUG_RADIUS) || (v.y > MUG.y && r < 0.12));
   };
   const keep = [];
   const take = [];

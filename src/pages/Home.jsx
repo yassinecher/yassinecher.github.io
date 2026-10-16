@@ -19,14 +19,17 @@ const featured = allProjects.filter((p) => p.featured);
 // What he says (in the handwritten note by his head) for each mood
 const MOOD_LINES = {
   interested: "go on…",
-  love: "got it, thank you!",
-  upset: "that didn't go through",
-  annoyed: "almost done here",
+  love: "thanks! talk soon",
+  upset: "hmm, that didn't send",
+  annoyed: "just a sec, compiling…",
   startled: "one moment!",
-  reading: "reading…",
+  reading: "reading along…",
+  greeting: "hi, I'm Yassine!",
 };
 // Hovering him while he works, and poking him (a click)
-const ANNOYED_LINES = ["almost done here", "after this commit…", "in the zone, one sec"];
+const ANNOYED_LINES = ["just a sec, compiling…", "after this commit…", "deep in a bug, one sec"];
+// Arriving at contact: the first time, then coming back
+const GREETINGS = ["hi, I'm Yassine!", "hey, welcome back", "good to see you again"];
 const STARTLED_LINES = ["one moment!", "be right with you", "just finishing this"];
 // Showing a project: something true about it, from the project data
 const excitedLine = (project, count) => {
@@ -271,10 +274,10 @@ const Contact = ({ mailRef, feel }) => {
     let line = "go on…";
     if (key === "name") {
       const first = value.trim().split(/\s+/)[0].slice(0, 16);
-      line = first.length > 1 ? `nice to meet you, ${first}` : "and your name is…?";
+      line = first.length > 1 ? `nice to meet you, ${first}!` : "and your name is…?";
     }
-    if (key === "email") line = value.includes("@") ? "I'll reply there" : "where should I reply?";
-    if (key === "message") line = value.length > 140 ? "tell me more" : "sounds interesting";
+    if (key === "email") line = value.includes("@") ? "got it, I'll reply there" : "and your email?";
+    if (key === "message") line = value.length > 140 ? "tell me more, I'm all ears" : "sounds interesting";
     feel("interested", 3200, { look: true, line });
   };
   const mirror = (key) => (e) => {
@@ -413,9 +416,9 @@ export const Home = () => {
     name: null,
     until: 0,
     at: 0,
-    weights: { excited: 0, interested: 0, love: 0, upset: 0, annoyed: 0, startled: 0, reading: 0 },
+    weights: { excited: 0, interested: 0, love: 0, upset: 0, annoyed: 0, startled: 0, reading: 0, greeting: 0 },
   });
-  const pokes = useRef({ hover: 0, click: 0 });
+  const pokes = useRef({ hover: 0, click: 0, hello: 0 });
   // The coffee mug: a click asks for a sip; `active` while he's drinking (Avatar)
   const coffeeRef = useRef({ request: false, active: false });
   const [mood, setMood] = useState(null); // the little drawings next to his head
@@ -586,6 +589,12 @@ export const Home = () => {
     const id = setTimeout(() => {
       attentionRef.current.hold = true;
       activityRef.current = performance.now() + 4000;
+      // say hello as he turns round (a typing visitor gets his reading face instead)
+      const m = moodRef.current;
+      if (performance.now() > m.until || m.name === "annoyed" || m.name === "excited") {
+        feel("greeting", 3000, { look: true, line: GREETINGS[Math.min(pokes.current.hello, GREETINGS.length - 1)] });
+        pokes.current.hello++;
+      }
     }, 600);
     return () => clearTimeout(id);
   }, [active]);
@@ -625,6 +634,8 @@ export const Home = () => {
     const m = moodRef.current;
     const busy = performance.now() < m.until;
     if (coffeeRef.current.active) return; // mid-sip: leave him be
+    // On the way down to contact, and in it, he's turning to welcome you, not to be bothered
+    if (progressRef.current > 3.5) return;
     // Reading your message, he's busy too; otherwise in contact he's all yours
     if (busy && m.name === "reading") return feel("annoyed", 2000, { line: "one sec, reading this" });
     if (attentionRef.current.hold) return;

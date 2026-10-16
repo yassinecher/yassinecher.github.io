@@ -26,7 +26,7 @@ const LOOK_CHAIN = [
 const UP = new THREE.Vector3(0, 1, 0);
 // The face looks along the head bone's own +z (measured: the eyes sit along +z and +y)
 const FACE = new THREE.Vector3(0, 0, 1);
-const NO_MOOD = { excited: 0, interested: 0, love: 0, upset: 0, annoyed: 0, startled: 0, reading: 0 };
+const NO_MOOD = { excited: 0, interested: 0, love: 0, upset: 0, annoyed: 0, startled: 0, reading: 0, greeting: 0 };
 // Shoulder, elbow and wrist of each arm, for reaching: hands onto his thighs when he turns to
 // you, and the right one up for "one moment" when you poke him
 const ARMS = {
@@ -44,19 +44,25 @@ const X_AXIS = new THREE.Vector3(1, 0, 0);
 // like paddles, more curl like claws)
 const TYPING_CURL = [0.11, 0.14, 0.08];
 const TYPING_FLEX = 0.12;
+// (measured: every fingertip over the keys, resting on the key tops)
+const TYPING_ORIENT = { inward: 0.15, down: 0.25, roll: 0.25 };
 // Resting on his thighs (picked from close-ups): the wrist halfway down the thigh and toward the
 // middle of the leg, elbow down by his side and back, the hand flat along the leg with the
 // fingers nearly straight
 const REST = { along: 0.5, up: 0.26, inward: 0.15, curl: 0.35, back: 0.6, out: 0.25, drop: 0.03 };
-// A sip of coffee, in seconds: lean over and take the mug, bring it up, drink, put it back, back
-// to the keys
-const SIP = { reach: [0, 0.9], take: 1, lift: [1, 1.9], drink: [1.9, 2.9], lower: [2.9, 3.8], release: 3.8, back: [3.8, 4.7], length: 4.8 };
+// A sip of coffee, in seconds: lean over and take the mug by its handle, bring it up, drink,
+// put it back, back to the keys
+const SIP = { reach: [0, 1], take: 1.1, lift: [1.1, 2.1], drink: [2.1, 3.3], lower: [3.3, 4.3], release: 4.4, back: [4.4, 5.4], length: 5.5 };
 const MUG_HEIGHT = 0.26;
+// The mug's handle points along +x (measured), 0.17 from its axis, halfway up
+const MUG_HANDLE = new THREE.Vector3(0.17, 0.13, 0);
 const HAND_SHAPES = {
   // resting on his thighs: loose, gently bent
   relaxed: { Thumb: [0.1, 0.15, 0.1], Index: [0.15, 0.2, 0.12], Middle: [0.2, 0.25, 0.15], Ring: [0.25, 0.3, 0.15], Pinky: [0.3, 0.3, 0.15] },
-  // holding a mug: fingers wrapped round it
-  grip: { Thumb: [0.3, 0.45, 0.35], Index: [0.65, 0.85, 0.6], Middle: [0.7, 0.9, 0.6], Ring: [0.75, 0.9, 0.6], Pinky: [0.8, 0.9, 0.6] },
+  // holding a mug by its handle: fingers hooked through, thumb resting on top
+  grip: { Thumb: [0.2, 0.25, 0.2], Index: [0.9, 1.1, 0.7], Middle: [0.95, 1.15, 0.7], Ring: [1.05, 1.15, 0.7], Pinky: [1.1, 1.1, 0.7] },
+  // waving hello: open hand, fingers together and straight
+  open: { Thumb: [0.05, 0.05, 0.05], Index: [0.02, 0.02, 0.02], Middle: [0.02, 0.02, 0.02], Ring: [0.04, 0.04, 0.03], Pinky: [0.06, 0.05, 0.04] },
   // "one moment": index finger up, the others folded in
   oneMoment: { Thumb: [0.35, 0.55, 0.45], Index: [0, 0, 0], Middle: [1.35, 1.45, 0.9], Ring: [1.4, 1.45, 0.9], Pinky: [1.45, 1.35, 0.9] },
 };
@@ -130,7 +136,15 @@ export function Avatar(props) {
   // The coffee break: when it started (-1: not now), when the next one comes on its own
   const sip = useRef({ start: -1, next: 30 + Math.random() * 25 });
   const sipTmp = useMemo(
-    () => ({ grab: new THREE.Vector3(), mouth: new THREE.Vector3(), hold: new THREE.Vector3(), steamRest: null, tilt: new THREE.Quaternion() }),
+    () => ({
+      grab: new THREE.Vector3(),
+      mouth: new THREE.Vector3(),
+      hold: new THREE.Vector3(),
+      tilt: new THREE.Quaternion(),
+      inHand: new THREE.Matrix4(), // the mug in the hand's frame, taken when he picks it up
+      held: false,
+      matrix: new THREE.Matrix4(),
+    }),
     []
   );
   // Short pauses in the typing, as if he were thinking about the next line
@@ -395,7 +409,18 @@ export function Avatar(props) {
       add(after, "Head", -0.14 * jolt);
     }
     if (oneMoment > 0.001) add(after, "Head", 0.05 * oneMoment, 0, 0.07 * oneMoment); // a small, friendly nod
-    if (sipDrink > 0.001) add(after, "Head", -0.16 * sipDrink); // head back a little as he drinks
+    if (sipDrink > 0.001) add(after, "Head", -0.14 * sipDrink); // head back a little as he drinks
+    const savour = tc < 0 ? 0 : between(SIP.drink[1], SIP.drink[1] + 0.4) * (1 - between(...SIP.back)); // after the sip
+    // Hello (arriving at contact): a big smile, head tilted, and a wave
+    const tg = mood?.name === "greeting" ? t : Infinity;
+    const wave = smoothstep(0.35, 0.75, tg) * (1 - smoothstep(2.1, 2.6, tg)) * w.greeting;
+    if (w.greeting > 0.001) add(after, "Head", 0, 0, 0.1 * w.greeting);
+    // Waiting for you in contact: relaxed, a slow sway and now and then a small nod
+    const waiting = attentionRef?.current?.hold ? lookHead * (1 - w.reading) : 0;
+    if (waiting > 0.001) {
+      add(after, "Head", Math.max(0, Math.sin(now * 1.3)) ** 6 * 0.08 * waiting, 0, Math.sin(now * 0.5) * 0.05 * waiting);
+      add(offsets, "Spine1", 0, 0, Math.sin(now * 0.5 + 1) * 0.02 * waiting);
+    }
     // Reading your message as it lands on his monitor (contact): leans in, eyes along the lines
     if (w.reading > 0.001) {
       const rd = w.reading;
@@ -413,13 +438,15 @@ export function Avatar(props) {
       .filter((mesh) => mesh?.morphTargetDictionary?.mouthSmile !== undefined);
     const cross = Math.max(w.upset, w.annoyed * 0.7);
     const smile =
-      Math.max(0.8 * lookHead, 0.9 * w.excited, 0.6 * w.interested, w.love, 0.55 * oneMoment, 0.25 * w.reading) * (1 - cross) -
+      Math.max(0.85 * lookHead + 0.1 * Math.sin(now * 0.7) * waiting, 0.9 * w.excited, 0.7 * w.interested, w.love, w.greeting, 0.55 * oneMoment, 0.25 * w.reading, 0.6 * savour) * (1 - cross) -
       0.7 * w.upset - 0.2 * w.annoyed;
-    const open = 0.28 * w.excited + 0.16 * w.love + 0.6 * jolt;
+    const open = 0.28 * w.excited + 0.16 * w.love + 0.6 * jolt + 0.22 * w.greeting;
+    // (a bad number here wipes the face off the head: never let one through)
+    const safe = (value) => (Number.isFinite(value) ? THREE.MathUtils.clamp(value, -1, 1) : 0);
     for (const mesh of faceMeshes.current) {
       const shapes = mesh.morphTargetDictionary;
-      mesh.morphTargetInfluences[shapes.mouthSmile] = smile;
-      if (shapes.mouthOpen !== undefined) mesh.morphTargetInfluences[shapes.mouthOpen] = open;
+      mesh.morphTargetInfluences[shapes.mouthSmile] = safe(smile);
+      if (shapes.mouthOpen !== undefined) mesh.morphTargetInfluences[shapes.mouthOpen] = safe(open);
     }
 
     // Offsets go on top of whatever the mixer produced this frame (see offsetState above)
@@ -504,29 +531,54 @@ export function Avatar(props) {
         bone.quaternion.copy(parent.multiply(turn).multiply(world));
       }
       turnToward(nodes.Head, rest, 0.55 * sipReach * (1 - sipLift));
-      // where the wrist takes the mug: on its near side, halfway up
+      // where the wrist takes the mug: just outside its handle (the side his hand comes from)
       const { grab, mouth, hold } = sipTmp;
-      grab.copy(rest).addScaledVector(forward, -0.14).addScaledVector(right, 0.03).addScaledVector(UP, 0.11);
-      // where it drinks: the rim at his mouth, a little in front of his face
+      grab.copy(rest).add(MUG_HANDLE).addScaledVector(tmp.v[1].set(1, 0, 0), 0.09).addScaledVector(UP, -0.03);
+      // where it drinks: the rim at his lips, a little in front of his face
       nodes.Head.getWorldPosition(mouth);
-      mouth.addScaledVector(forward, 0.3).addScaledVector(UP, -0.2);
-      hold.copy(mouth).sub(rest).sub(tmp.v[1].set(0, MUG_HEIGHT, 0)).add(grab); // wrist when the rim is at the mouth
+      mouth.addScaledVector(forward, 0.26).addScaledVector(UP, -0.16);
+      hold.copy(mouth).sub(tmp.v[1].copy(rest).add(tmp.v[2].set(0, MUG_HEIGHT, 0))).add(grab); // wrist when the rim is at his lips
       tmp.target.copy(grab).lerp(hold, sipLift);
-      place("Left", tmp.target, elbowPole("Left", 0.2, 0.5), sipReach);
-      tmp.palmDir.copy(rest).sub(nodes.LeftHand.getWorldPosition(tmp.v[2])).setY(0).normalize();
-      orientHand("Left", tmp.fingersDir.copy(forward).addScaledVector(right, 0.4), tmp.palmDir, sipReach);
+      place("Left", tmp.target, elbowPole("Left", 0.2, 0.55), sipReach);
+      // the hand stays square to the handle (palm toward the mug, fingers forward) and tips the
+      // mug toward his mouth to drink
+      sipTmp.tilt.setFromAxisAngle(right, -0.85 * sipDrink);
+      tmp.palmDir.set(-1, 0, 0).applyQuaternion(sipTmp.tilt);
+      tmp.fingersDir.copy(forward).applyQuaternion(sipTmp.tilt);
+      orientHand("Left", tmp.fingersDir, tmp.palmDir, sipReach);
       shapeHand("Left", "grip", sipReach);
-      // the mug goes with the hand between taking it and putting it back, tipping as he drinks
+      // between taking it and putting it back, the mug moves with the hand as one piece
       const holding = tc >= SIP.take && tc <= SIP.release;
+      const hand = nodes.LeftHand;
       if (holding) {
-        nodes.LeftHand.getWorldPosition(cup.mug.position).sub(grab).add(rest);
-        sipTmp.tilt.setFromAxisAngle(right, 0.75 * sipDrink);
-        cup.mug.quaternion.copy(sipTmp.tilt);
+        hand.updateWorldMatrix(true, false);
+        if (!sipTmp.held) {
+          cup.mug.updateWorldMatrix(true, false);
+          sipTmp.inHand.copy(hand.matrixWorld).invert().multiply(cup.mug.matrixWorld);
+          sipTmp.held = true;
+        }
+        sipTmp.matrix.multiplyMatrices(hand.matrixWorld, sipTmp.inHand);
+        if (cup.mug.parent) sipTmp.matrix.premultiply(tmp.matrix.copy(cup.mug.parent.matrixWorld).invert());
+        sipTmp.matrix.decompose(cup.mug.position, cup.mug.quaternion, tmp.v[3]);
       } else {
+        sipTmp.held = false;
         cup.mug.position.copy(rest);
         cup.mug.quaternion.identity();
       }
       if (cup.steam) cup.steam.position.copy(cup.mug.position).sub(rest);
+    }
+    // The wave: right hand up beside his face, open, palm to you, rocking from the wrist
+    if (wave > 0.001) {
+      const { right, forward } = body();
+      const [shoulder] = tmp.v;
+      nodes.RightArm.getWorldPosition(shoulder);
+      tmp.target.copy(shoulder).addScaledVector(right, 0.32 * length).addScaledVector(UP, 0.18 * length).addScaledVector(forward, 0.18 * length);
+      place("Right", tmp.target, elbowPole("Right", 0.15, 0.8), wave);
+      const rock = Math.sin((tg - 0.35) * 2 * Math.PI * 1.6) * 0.38;
+      tmp.toward.copy(state.camera.position).sub(tmp.target).setY(0).normalize();
+      tmp.fingersDir.copy(UP).applyAxisAngle(tmp.toward, rock).addScaledVector(right, 0.15);
+      orientHand("Right", tmp.fingersDir, tmp.toward, wave);
+      shapeHand("Right", "open", wave);
     }
     // "One moment": right hand up in front of his shoulder, palm to you, index finger raised
     if (oneMoment > 0.001) {
@@ -549,17 +601,15 @@ export function Avatar(props) {
     }
     const typingHands = lean.current * (1 - handsOff) * (1 - sipReach);
     if (typingHands > 0.001) {
-      // The clip turns both hands in until the fingertips meet: point them mostly forward, at the
-      // monitor, keeping a slight natural inward angle
-      const { forward } = body();
+      // Hands over the keys like a typist's: fingers toward the screen, a little inward and down
+      // to the keys, palms down with a slight roll outward (the clip alone turned them in until
+      // the fingertips met)
+      const { forward, right } = body();
       for (const side of ["Left", "Right"]) {
-        const hand = nodes[`${side}Hand`];
-        const [turn, parent, world] = tmp.q;
-        const fingers = tmp.v[0].set(0, 1, 0).applyQuaternion(hand.getWorldQuaternion(world)).setY(0).normalize();
-        const angle = Math.atan2(fingers.x * forward.z - fingers.z * forward.x, fingers.x * forward.x + fingers.z * forward.z);
-        turn.setFromAxisAngle(UP, -angle * 0.75 * typingHands);
-        hand.parent.getWorldQuaternion(parent).invert();
-        hand.quaternion.copy(parent.multiply(turn).multiply(world));
+        const inward = side === "Left" ? 1 : -1;
+        tmp.fingersDir.copy(forward).addScaledVector(right, inward * TYPING_ORIENT.inward).addScaledVector(UP, -TYPING_ORIENT.down);
+        tmp.palmDir.set(0, -1, 0).addScaledVector(right, -inward * TYPING_ORIENT.roll);
+        orientHand(side, tmp.fingersDir, tmp.palmDir, typingHands);
       }
       for (const side of ["Left", "Right"]) {
         nodes[`${side}Hand`].rotateX(TYPING_FLEX * typingHands);

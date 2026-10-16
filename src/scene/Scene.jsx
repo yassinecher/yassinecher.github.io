@@ -99,7 +99,7 @@ export const SEAT = {
   scale: 0.945 / 0.44,
   // Where his wrists rest on the keyboard (room coordinates); reached by IK, so they stay on the
   // keys whatever his size and the swivel of the chair
-  hands: { Left: [-0.14, 2.185, -3.3], Right: [0.36, 2.19, -3.34] },
+  hands: { Left: [-0.12, 2.25, -3.22], Right: [0.36, 2.26, -3.3] },
   // Measured against the desk (top y 1.9), seat (y 1.6) and keyboard (x -0.3..0.5, z -3.75..-3.45):
   // a slight lean, fingertips resting on the keys (they only dip in on a key press), head up
   // toward the monitor, thighs under the desk, feet flat on the floor.
@@ -166,7 +166,7 @@ const NIGHT_SKY = new THREE.Color("#b7b0d6");
 // comes round last, and the hands leave the keys once he's looking. Going back, the head returns to
 // the screen first and the hands find the keys a beat later. Each part is a critically damped
 // spring (ease in and out), not an exponential snap.
-const MOODS = ["excited", "interested", "love", "upset", "annoyed", "startled", "reading"];
+const MOODS = ["excited", "interested", "love", "upset", "annoyed", "startled", "reading", "greeting"];
 const PARTS = {
   // seconds to settle: [turning to you, going back]; a poke makes him spin round fast
   head: [0.3, 0.32],
@@ -218,7 +218,7 @@ const SeatRig = ({ swivelRef, attentionRef, moodRef, colliderRef }) => {
     a.value = a.body;
     for (const name of MOODS) {
       const speed = name === "startled" && name === current ? 9 : 3.2;
-      mood.weights[name] = THREE.MathUtils.damp(mood.weights[name], name === current ? 1 : 0, speed, dt);
+      mood.weights[name] = THREE.MathUtils.damp(mood.weights[name] ?? 0, name === current ? 1 : 0, speed, dt);
     }
 
     const pivot = swivelRef.current.position;
