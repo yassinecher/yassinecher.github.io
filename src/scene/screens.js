@@ -339,6 +339,31 @@ export const createPcScreen = () => {
     ctx.textAlign = "center";
     ctx.fillText("Send", w - 119, h - 50);
     ctx.textAlign = "left";
+
+    // Once the form is sent: a quiet confirmation over the mail
+    if (mail.sent) {
+      ctx.fillStyle = "rgba(246,243,238,0.94)";
+      ctx.fillRect(0, 64, w, h - 64);
+      ctx.strokeStyle = "#2f9e5b";
+      ctx.lineWidth = 8;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.arc(w / 2, h / 2 - 30, 54, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(w / 2 - 24, h / 2 - 30);
+      ctx.lineTo(w / 2 - 6, h / 2 - 12);
+      ctx.lineTo(w / 2 + 26, h / 2 - 48);
+      ctx.stroke();
+      ctx.fillStyle = "#1c1a17";
+      ctx.font = `600 34px ${SANS}`;
+      ctx.textAlign = "center";
+      ctx.fillText("Message sent", w / 2, h / 2 + 70);
+      ctx.fillStyle = "#6f675d";
+      ctx.font = `400 22px ${SANS}`;
+      ctx.fillText("Thank you. I'll get back to you soon.", w / 2, h / 2 + 108);
+      ctx.textAlign = "left";
+    }
   };
 
   const now = () => performance.now() / 1000;

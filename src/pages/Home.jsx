@@ -8,7 +8,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { education, experience, languages, profile, stack } from "../data/profile";
 import { projects as allProjects } from "../data/projects";
 import { cvUrl, useCvAvailable } from "../lib/useCv";
-import { AvatarTracker, Scene } from "../scene/Scene";
+import { AvatarTracker, FrameDriver, Scene } from "../scene/Scene";
 import { homeSectionAtom } from "../state";
 
 const SECTIONS = [
@@ -143,29 +143,25 @@ const Nav = ({ active, onJump, evening, toggleEvening }) => {
 
 // ---------------------------------------------------------------------------------------------
 
-const Loader = ({ onDone }) => {
+// The page is usable straight away; this small note tracks the room while it loads, and the
+// canvas fades in once everything is there.
+const RoomLoader = ({ onDone }) => {
   const { progress, active } = useProgress();
-  const [gone, setGone] = useState(false);
   const done = progress >= 100 && !active;
   useEffect(() => {
-    if (done) {
-      onDone?.();
-      const id = setTimeout(() => setGone(true), 700);
-      return () => clearTimeout(id);
-    }
+    if (done) onDone?.();
   }, [done]);
-  if (gone) return null;
   return (
     <div
-      className={`fixed inset-0 z-50 flex flex-col items-center justify-center bg-paper transition-opacity duration-700 ${
-        done ? "pointer-events-none opacity-0" : "opacity-100"
+      aria-hidden
+      className={`pointer-events-none fixed bottom-6 right-6 z-30 flex items-center gap-3 rounded-full border border-line bg-card/90 px-4 py-2 font-mono text-[11px] uppercase tracking-[0.14em] text-muted backdrop-blur transition-opacity duration-700 md:right-10 ${
+        done ? "opacity-0" : "opacity-100"
       }`}
     >
-      <p className="font-serif text-5xl md:text-7xl">Yassine Cherni</p>
-      <div className="mt-6 h-px w-56 bg-line">
-        <div className="h-px bg-ink transition-[width] duration-300" style={{ width: `${progress}%` }} />
-      </div>
-      <p className="mt-3 font-mono text-[11px] uppercase tracking-[0.18em] text-muted">Tidying the desk · {Math.round(progress)}%</p>
+      <span className="relative h-1 w-16 overflow-hidden rounded-full bg-line">
+        <span className="absolute inset-y-0 left-0 bg-ink transition-[width] duration-300" style={{ width: `${progress}%` }} />
+      </span>
+      Setting up the studio
     </div>
   );
 };
@@ -345,6 +341,9 @@ const Contact = ({ mailRef }) => {
   const mirror = (key) => (e) => {
     mailRef.current[key] = e.target.value;
   };
+  useEffect(() => {
+    mailRef.current.sent = state.succeeded;
+  }, [state.succeeded]);
   const field =
     "w-full border-0 border-b border-line bg-transparent px-0 py-2.5 text-[15px] placeholder:text-muted/60 focus:border-ink focus:outline-hidden focus:ring-0 transition-colors";
 
@@ -418,6 +417,8 @@ export const Home = () => {
   const screenRef = useRef({});
   const mailRef = useRef({ name: "", email: "", message: "" });
   const pointerRef = useRef({ x: 0, y: 0 });
+  // Last time the visitor did something (plus the intro), for the adaptive frame rate
+  const activityRef = useRef(performance.now() + 5000);
   const [active, setActive] = useState(0);
   // Lights: automatic (evening after 7pm in Tunis, and in the contact section) until the visitor
   // uses the switch; from then on the switch decides.
@@ -426,7 +427,7 @@ export const Home = () => {
     const hour = Number(new Intl.DateTimeFormat("en-GB", { hour: "2-digit", hour12: false, timeZone: "Africa/Tunis" }).format(new Date()));
     return hour >= 19 || hour < 6;
   }, []);
-  const [ready, setReady] = useState(false);
+  const [sceneReady, setSceneReady] = useState(false);
   const [dpr, setDpr] = useState(() => Math.min(1.5, window.devicePixelRatio));
   const lenisRef = useRef(null);
   const [selected, setSelected] = useState(0);
@@ -457,9 +458,8 @@ export const Home = () => {
     };
   }, []);
 
-  // Reveal content as it scrolls into view, starting once the loader is gone
+  // Reveal content as it scrolls into view
   useEffect(() => {
-    if (!ready) return;
     const observer = new IntersectionObserver(
       (entries) =>
         entries.forEach((entry) => {
@@ -472,7 +472,7 @@ export const Home = () => {
     );
     document.querySelectorAll("[data-reveal], [data-reveal-lines]").forEach((el) => observer.observe(el));
     return () => observer.disconnect();
-  }, [ready]);
+  }, []);
 
   const openProject = (slug) => {
     setRequested({ index: 3, at: Date.now() });
@@ -491,6 +491,7 @@ export const Home = () => {
   // Scroll position → camera progress (a float across sections) and the active section
   useEffect(() => {
     const onScroll = () => {
+      activityRef.current = performance.now();
       const y = window.scrollY;
       const vh = window.innerHeight;
       const els = sectionEls.current;
@@ -516,6 +517,7 @@ export const Home = () => {
   useEffect(() => {
     const tip = document.getElementById("room-tip");
     const onMove = (e) => {
+      activityRef.current = performance.now();
       pointerRef.current.x = e.clientX / window.innerWidth - 0.5;
       pointerRef.current.y = e.clientY / window.innerHeight - 0.5;
       if (tip) tip.style.transform = `translate(${e.clientX + 16}px, ${e.clientY + 18}px)`;
@@ -564,14 +566,23 @@ export const Home = () => {
 
   return (
     <div className="font-sans text-ink">
-      <div className="fixed inset-0 z-0">
+      <a
+        href="#about"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-20 focus:z-50 focus:rounded-full focus:bg-ink focus:px-4 focus:py-2 focus:text-paper"
+      >
+        Skip to content
+      </a>
+      <div className={`fixed inset-0 z-0 transition-opacity duration-1000 ${sceneReady ? "opacity-100" : "opacity-0"}`}>
         <Canvas
           camera={{ fov: 20, near: 0.1, far: 150, position: [-18.9, 15.6, 18.9] }}
           gl={{ alpha: true, antialias: true, powerPreference: "high-performance" }}
           dpr={dpr}
+          frameloop="demand"
         >
+          <FrameDriver activityRef={activityRef} />
           {/* Drop the pixel ratio on machines that can't keep up, raise it back when they can */}
           <PerformanceMonitor
+            bounds={() => [24, 55]}
             onDecline={() => setDpr(1)}
             onIncline={() => setDpr(Math.min(1.5, window.devicePixelRatio))}
           />
@@ -615,7 +626,7 @@ export const Home = () => {
         className="pointer-events-none fixed left-0 top-0 z-50 rounded-full bg-ink px-3 py-1.5 font-mono text-[11px] uppercase tracking-[0.12em] text-paper opacity-0 transition-opacity duration-150 data-[show=true]:opacity-100"
       />
 
-      <Loader onDone={() => setReady(true)} />
+      <RoomLoader onDone={() => setSceneReady(true)} />
       <Nav active={active} onJump={jump} evening={evening} toggleEvening={toggleEvening} />
 
       <main className="pointer-events-none relative z-20">

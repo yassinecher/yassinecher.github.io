@@ -1,6 +1,6 @@
 import { Sparkles } from "@react-three/drei";
 import { useFrame, useThree } from "@react-three/fiber";
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { Avatar } from "../components/Avatar";
 import { CHAIR_PULL, Room, roomInteractive } from "./Room";
@@ -26,6 +26,7 @@ const MOBILE_STOPS = [
 ];
 
 const smooth = (t) => t * t * (3 - 2 * t);
+const reducedMotion = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 const CameraRig = ({ progressRef, pointerRef }) => {
   const three = useThree();
@@ -51,13 +52,18 @@ const CameraRig = ({ progressRef, pointerRef }) => {
     const shift = THREE.MathUtils.lerp(A.shift, B.shift, t);
 
     // A little parallax with the pointer, so the room feels alive
-    tmp.pos.x += pointerRef.current.x * 0.6;
-    tmp.pos.y += pointerRef.current.y * 0.4;
+    if (!reducedMotion) {
+      tmp.pos.x += pointerRef.current.x * 0.6;
+      tmp.pos.y += pointerRef.current.y * 0.4;
+    }
 
     // First frames: start far away and slowly dolly in to the first stop
     if (!current.pos) {
-      current.pos = tmp.pos.clone().sub(tmp.target).multiplyScalar(1.9).add(tmp.target);
-      current.pos.y += 6;
+      current.pos = tmp.pos.clone();
+      if (!reducedMotion) {
+        current.pos.sub(tmp.target).multiplyScalar(1.9).add(tmp.target);
+        current.pos.y += 6;
+      }
       current.age = 0;
     }
     current.age += dt;
@@ -185,4 +191,26 @@ const Dust = ({ nightRef }) => {
     attribute.needsUpdate = true;
   });
   return <Sparkles ref={ref} count={70} scale={[7, 4.5, 7]} position={[0.5, 3.2, -1]} size={2.4} speed={0.18} noise={0.6} color="#fff1cf" opacity={0.7} />;
+};
+
+// Render at full rate while the visitor is doing something (scrolling, moving the pointer, the
+// intro), and at 30 fps when the page just sits there: the room still lives, at half the work.
+// Used with <Canvas frameloop="demand">.
+export const FrameDriver = ({ activityRef }) => {
+  const invalidate = useThree((state) => state.invalidate);
+  useEffect(() => {
+    let frame;
+    let last = 0;
+    const loop = (time) => {
+      const busy = performance.now() - activityRef.current < 1500;
+      if (busy || time - last >= 1000 / 30 - 2) {
+        invalidate();
+        last = time;
+      }
+      frame = requestAnimationFrame(loop);
+    };
+    frame = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(frame);
+  }, [invalidate, activityRef]);
+  return null;
 };
