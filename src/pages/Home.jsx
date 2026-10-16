@@ -43,6 +43,18 @@ const projectUrl = (p) => {
 
 // ---------------------------------------------------------------------------------------------
 
+const PHONE = "(max-width: 767px)";
+const usePhone = () => {
+  const [phone, setPhone] = useState(() => window.matchMedia(PHONE).matches);
+  useEffect(() => {
+    const query = window.matchMedia(PHONE);
+    const change = () => setPhone(query.matches);
+    query.addEventListener("change", change);
+    return () => query.removeEventListener("change", change);
+  }, []);
+  return phone;
+};
+
 const Label = ({ index, children }) => (
   <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted">
     {index && <span className="text-accent">{index}</span>}
@@ -76,16 +88,17 @@ const RoomLoader = ({ onDone }) => {
 
 // ---------------------------------------------------------------------------------------------
 
+// On phones the room has its own panel at the top (Home), and each section's text starts below it
 const Section = ({ index, innerRef, children, className = "" }) => (
   <section
     ref={innerRef}
     id={SECTIONS[index].id}
-    className={`relative flex min-h-screen items-end md:items-center px-5 md:px-10 ${className}`}
+    className={`relative flex min-h-screen items-start pt-[calc(46svh+5.5rem)] md:items-center md:pt-0 px-5 md:px-10 ${className}`}
   >
     {/* Only the text column takes the pointer: the rest of the screen is the room, which you can
         hover and click (him, the monitor, the TV...) */}
     <div className="mx-auto w-full max-w-[1400px] pb-10 md:pb-0">
-      <div className="pointer-events-auto max-w-[540px] rounded-3xl bg-paper/90 p-5 backdrop-blur-sm md:bg-transparent md:p-0 md:backdrop-blur-none">
+      <div className="pointer-events-auto max-w-[540px]">
         {children}
       </div>
     </div>
@@ -403,9 +416,13 @@ export const Home = () => {
     weights: { excited: 0, interested: 0, love: 0, upset: 0, annoyed: 0, startled: 0, reading: 0 },
   });
   const pokes = useRef({ hover: 0, click: 0 });
+  // The coffee mug: a click asks for a sip; `active` while he's drinking (Avatar)
+  const coffeeRef = useRef({ request: false, active: false });
   const [mood, setMood] = useState(null); // the little drawings next to his head
   const moodTimers = useRef([]);
   const [active, setActive] = useState(0);
+  const phone = usePhone();
+  const [touched, setTouched] = useState(false); // the phone hint goes once the room's been tapped
   const { evening, toggle: toggleEvening } = useLights();
   const setSceneEvening = useSetAtom(sceneEveningAtom);
   const [sceneReady, setSceneReady] = useState(false);
@@ -514,11 +531,23 @@ export const Home = () => {
     const onMove = (e) => {
       activityRef.current = performance.now();
       pointerRef.current.x = e.clientX / window.innerWidth - 0.5;
-      pointerRef.current.y = e.clientY / window.innerHeight - 0.5;
-      if (tip) tip.style.transform = `translate(${e.clientX + 16}px, ${e.clientY + 18}px)`;
+      pointerRef.current.y = e.pointerType === "touch" ? 0 : e.clientY / window.innerHeight - 0.5;
+      if (tip && e.pointerType !== "touch") tip.style.transform = `translate(${e.clientX + 16}px, ${e.clientY + 18}px)`;
+    };
+    // A finger lifted: the room drifts back to where it was
+    const onUp = (e) => {
+      if (e.pointerType !== "touch") return;
+      pointerRef.current.x = 0;
+      pointerRef.current.y = 0;
     };
     window.addEventListener("pointermove", onMove, { passive: true });
-    return () => window.removeEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp, { passive: true });
+    window.addEventListener("pointercancel", onUp, { passive: true });
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
   }, []);
 
   // The room, and the whole site with it, goes to evening light in the contact section (unless
@@ -595,6 +624,7 @@ export const Home = () => {
   const onAvatarHover = () => {
     const m = moodRef.current;
     const busy = performance.now() < m.until;
+    if (coffeeRef.current.active) return; // mid-sip: leave him be
     // Reading your message, he's busy too; otherwise in contact he's all yours
     if (busy && m.name === "reading") return feel("annoyed", 2000, { line: "one sec, reading this" });
     if (attentionRef.current.hold) return;
@@ -603,6 +633,7 @@ export const Home = () => {
     feel("annoyed", 2400, { line: ANNOYED_LINES[pokes.current.hover % ANNOYED_LINES.length] });
   };
   const poke = () => {
+    if (coffeeRef.current.active) return;
     const m = moodRef.current;
     if (performance.now() < m.until && m.name === "startled") return;
     pokes.current.click++;
@@ -616,6 +647,7 @@ export const Home = () => {
   const onRoomAction = (action) => {
     if (action === "lights") toggleEvening();
     else if (action === "poke") poke();
+    else if (action === "coffee") coffeeRef.current.request = true;
     else jump(SECTIONS.findIndex((x) => x.id === action));
   };
 
@@ -627,7 +659,14 @@ export const Home = () => {
       >
         Skip to content
       </a>
-      <div className={`fixed inset-0 z-0 transition-opacity duration-1000 ${sceneReady ? "opacity-100" : "opacity-0"}`}>
+      {/* The room: behind everything on a wide screen; on a phone, its own panel under the header,
+          above the text, so it's always in view and can be tapped (and dragged to look around) */}
+      <div
+        onPointerDown={() => setTouched(true)}
+        className={`fixed transition-opacity duration-1000 ${sceneReady ? "opacity-100" : "opacity-0"} ${
+          phone ? "room-panel inset-x-0 top-16 z-30 h-[46svh] overflow-hidden border-b border-line bg-paper" : "inset-0 z-0"
+        }`}
+      >
         <Canvas
           camera={{ fov: 20, near: 0.1, far: 150, position: [-18.9, 15.6, 18.9] }}
           gl={{ alpha: true, antialias: true, powerPreference: "high-performance" }}
@@ -643,18 +682,29 @@ export const Home = () => {
           />
           <Suspense fallback={null}>
             <Scene
+              phone={phone}
               progressRef={progressRef}
               nightRef={nightRef}
               screenRef={screenRef}
               pointerRef={pointerRef}
               attentionRef={attentionRef}
               moodRef={moodRef}
+              coffeeRef={coffeeRef}
               onAction={onRoomAction}
               onAvatarHover={onAvatarHover}
             />
             <AvatarTracker noteId="avatar-note" moodId="avatar-mood" visibleRef={progressRef} />
           </Suspense>
         </Canvas>
+        {phone && (
+          <p
+            className={`pointer-events-none absolute bottom-3 left-4 rounded-full bg-paper/85 px-3 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-muted transition-opacity duration-500 ${
+              touched ? "opacity-0" : "opacity-100"
+            }`}
+          >
+            Tap the room · drag to look
+          </p>
+        )}
       </div>
 
       {/* The room fades into the paper behind the text column (desktop) */}

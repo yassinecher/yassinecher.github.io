@@ -36,10 +36,16 @@ html {
   color: var(--color-ink);
 }
 
-/* A moment of easing whenever the lights change. Scroll reveals keep their own transitions. */
-html.theme-fade,
-html.theme-fade *:not([data-reveal]):not(.line-mask > span) {
-  transition: background-color 0.8s ease, border-color 0.8s ease, color 0.8s ease, fill 0.8s ease, stroke 0.8s ease !important;
+/* Phones: vertical swipes over the room panel still scroll the page; sideways drags look around */
+.room-panel canvas {
+  touch-action: pan-y !important;
+}
+
+/* The lights changing: one soft crossfade of the whole page (lib/theme.js) */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 0.6s;
+  animation-timing-function: ease;
 }
 
 /* Lenis smooth scrolling */

@@ -573,10 +573,63 @@ const LOGO_COLORS = ["#e2502c", "#f2b134", "#5fb0e5", "#7bc47f", "#c084fc", "#f4
 
 export const createTvScreen = () => {
   const s = { x: 120, y: 90, vx: 150, vy: 105, color: 0, flash: 0 };
-  return {
+  // Power: switching off squeezes the picture into a bright line, then a dot, like an old tube;
+  // switching on opens it back up
+  const power = { on: true, at: -10 };
+  const OFF = 0.55;
+  const ON = 0.45;
+  let buffer = null;
+  const tv = {
     width: 1024,
     height: 576,
+    setPower(on, time) {
+      if (power.on === on) return;
+      power.on = on;
+      power.at = time;
+    },
+    get on() {
+      return power.on;
+    },
+    // Redraw rate: smooth while switching, nothing at all once it's dark
+    fps(time) {
+      const since = time - power.at;
+      if (power.on) return since < ON ? 60 : 15;
+      return since < OFF + 0.35 ? 60 : 0;
+    },
     draw(ctx, w, h, time, dt) {
+      const since = time - power.at;
+      if (power.on && since >= ON) return tv.show(ctx, w, h, time, dt);
+      ctx.fillStyle = "#050506";
+      ctx.fillRect(0, 0, w, h);
+      if (!power.on && since >= OFF) {
+        // the last speck of light fading on the glass
+        const fade = 1 - (since - OFF) / 0.35;
+        if (fade > 0) {
+          ctx.fillStyle = `rgba(235,240,255,${fade * 0.8})`;
+          ctx.beginPath();
+          ctx.arc(w / 2, h / 2, 6 * fade, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        return;
+      }
+      if (!buffer) {
+        buffer = document.createElement("canvas");
+        buffer.width = ctx.canvas.width;
+        buffer.height = ctx.canvas.height;
+        buffer.getContext("2d").setTransform(ctx.getTransform());
+      }
+      tv.show(buffer.getContext("2d"), w, h, time, dt);
+      // p: 0 = the full picture, 1 = gone
+      const p = power.on ? 1 - since / ON : since / OFF;
+      const squeeze = p < 0.6 ? 1 - (p / 0.6) ** 2 * 0.985 : 0.015;
+      const narrow = p < 0.6 ? 1 : Math.max(0.006, 1 - ((p - 0.6) / 0.4) ** 1.6);
+      const dw = w * narrow;
+      const dh = h * squeeze;
+      ctx.drawImage(buffer, 0, 0, buffer.width, buffer.height, (w - dw) / 2, (h - dh) / 2, dw, dh);
+      ctx.fillStyle = `rgba(235,240,255,${Math.min(1, p * 1.5)})`;
+      ctx.fillRect((w - dw) / 2, (h - dh) / 2, dw, dh);
+    },
+    show(ctx, w, h, time, dt) {
       const lw = 230;
       const lh = 120;
       s.x += s.vx * dt;
@@ -619,4 +672,5 @@ export const createTvScreen = () => {
       }
     },
   };
+  return tv;
 };

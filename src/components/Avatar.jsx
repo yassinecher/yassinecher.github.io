@@ -48,15 +48,21 @@ const TYPING_FLEX = 0.12;
 // middle of the leg, elbow down by his side and back, the hand flat along the leg with the
 // fingers nearly straight
 const REST = { along: 0.5, up: 0.26, inward: 0.15, curl: 0.35, back: 0.6, out: 0.25, drop: 0.03 };
+// A sip of coffee, in seconds: lean over and take the mug, bring it up, drink, put it back, back
+// to the keys
+const SIP = { reach: [0, 0.9], take: 1, lift: [1, 1.9], drink: [1.9, 2.9], lower: [2.9, 3.8], release: 3.8, back: [3.8, 4.7], length: 4.8 };
+const MUG_HEIGHT = 0.26;
 const HAND_SHAPES = {
   // resting on his thighs: loose, gently bent
   relaxed: { Thumb: [0.1, 0.15, 0.1], Index: [0.15, 0.2, 0.12], Middle: [0.2, 0.25, 0.15], Ring: [0.25, 0.3, 0.15], Pinky: [0.3, 0.3, 0.15] },
+  // holding a mug: fingers wrapped round it
+  grip: { Thumb: [0.3, 0.45, 0.35], Index: [0.65, 0.85, 0.6], Middle: [0.7, 0.9, 0.6], Ring: [0.75, 0.9, 0.6], Pinky: [0.8, 0.9, 0.6] },
   // "one moment": index finger up, the others folded in
   oneMoment: { Thumb: [0.35, 0.55, 0.45], Index: [0, 0, 0], Middle: [1.35, 1.45, 0.9], Ring: [1.4, 1.45, 0.9], Pinky: [1.45, 1.35, 0.9] },
 };
 
 export function Avatar(props) {
-  const { animation, wireframe, pose = {}, calm = { weight: 0, time: 0, speed: 1 }, hands, attentionRef, moodRef } = props;
+  const { animation, wireframe, pose = {}, calm = { weight: 0, time: 0, speed: 1 }, hands, attentionRef, moodRef, coffeeRef } = props;
   const group = useRef();
   const { nodes, materials } = useGLTF(asset("models/avatar1.glb"));
 
@@ -121,6 +127,12 @@ export function Avatar(props) {
     []
   );
   const armLength = useRef(0);
+  // The coffee break: when it started (-1: not now), when the next one comes on its own
+  const sip = useRef({ start: -1, next: 30 + Math.random() * 25 });
+  const sipTmp = useMemo(
+    () => ({ grab: new THREE.Vector3(), mouth: new THREE.Vector3(), hold: new THREE.Vector3(), steamRest: null, tilt: new THREE.Quaternion() }),
+    []
+  );
   // Short pauses in the typing, as if he were thinking about the next line
   const rhythm = useRef({ pauseAt: 6, until: 0, pause: 0 });
 
@@ -290,10 +302,32 @@ export function Avatar(props) {
     }
     r.pause = THREE.MathUtils.damp(r.pause, now < r.until ? 1 : 0, 3, dt);
 
+    // Coffee: on its own now and then, or when the mug is clicked, only while he's quietly working
+    const cup = coffeeRef?.current;
+    const s = sip.current;
+    if (cup?.mug) {
+      const quiet = lookBody < 0.01 && !(mood && performance.now() < mood.until) && lean.current > 0.95;
+      if (s.start < 0 && quiet && (cup.request || now > s.next)) s.start = now;
+      cup.request = false;
+      if (s.start >= 0 && now - s.start > SIP.length) {
+        s.start = -1;
+        s.next = now + 45 + Math.random() * 40;
+        cup.mug.position.copy(cup.mug.userData.rest);
+        cup.mug.quaternion.identity();
+        if (cup.steam) cup.steam.position.set(0, 0, 0);
+      }
+      cup.active = s.start >= 0;
+    }
+    const tc = s.start >= 0 ? now - s.start : -1; // seconds into the coffee break
+    const between = (from, to) => (tc < 0 ? 0 : smoothstep(from, to, tc));
+    const sipReach = tc < 0 ? 0 : between(...SIP.reach) * (1 - between(...SIP.back));
+    const sipLift = tc < 0 ? 0 : between(...SIP.lift) * (1 - between(...SIP.lower));
+    const sipDrink = tc < 0 ? 0 : between(...SIP.drink.map((x, i) => x + (i ? -0.3 : 0))) * (1 - between(SIP.drink[1] - 0.2, SIP.drink[1] + 0.2));
+
     // Paying attention (or thinking): the typing holds on the calm frame
     const { typing, anchor } = playing.current;
     if (typing && anchor) {
-      const live = (1 - calm.weight) * (1 - handsOff) * (1 - 0.85 * r.pause) * (1 - w.reading);
+      const live = (1 - calm.weight) * (1 - handsOff) * (1 - 0.85 * r.pause) * (1 - w.reading) * (1 - sipReach);
       typing.setEffectiveWeight(live);
       anchor.setEffectiveWeight(1 - live);
       typing.timeScale = calm.speed * (1 + 0.35 * w.excited + 0.5 * w.annoyed); // excited or annoyed: faster
@@ -361,6 +395,7 @@ export function Avatar(props) {
       add(after, "Head", -0.14 * jolt);
     }
     if (oneMoment > 0.001) add(after, "Head", 0.05 * oneMoment, 0, 0.07 * oneMoment); // a small, friendly nod
+    if (sipDrink > 0.001) add(after, "Head", -0.16 * sipDrink); // head back a little as he drinks
     // Reading your message as it lands on his monitor (contact): leans in, eyes along the lines
     if (w.reading > 0.001) {
       const rd = w.reading;
@@ -449,6 +484,50 @@ export function Avatar(props) {
         shapeHand(side, "relaxed", handsOff, REST.curl);
       }
     }
+    // The coffee: he leans over toward the mug, his eyes on it, takes it in his left hand, brings it
+    // up and drinks, puts it back where it was, and the hand goes back to the keys
+    if (sipReach > 0.001 && cup?.mug) {
+      const { right, forward } = body();
+      const rest = cup.mug.userData.rest;
+      const [hips] = tmp.v;
+      nodes.Hips.getWorldPosition(hips);
+      // lean: tilt the spine toward the mug (less once the mug is coming up)
+      const lean = 0.42 * sipReach * (1 - 0.85 * sipLift);
+      const toward = tmp.toward.copy(rest).sub(hips).setY(0).normalize();
+      const axis = tmp.fingersDir.crossVectors(UP, toward).normalize();
+      for (const name of ["Spine", "Spine1"]) {
+        const bone = nodes[name];
+        const [turn, parent, world] = tmp.q;
+        turn.setFromAxisAngle(axis, lean / 2);
+        bone.getWorldQuaternion(world);
+        bone.parent.getWorldQuaternion(parent).invert();
+        bone.quaternion.copy(parent.multiply(turn).multiply(world));
+      }
+      turnToward(nodes.Head, rest, 0.55 * sipReach * (1 - sipLift));
+      // where the wrist takes the mug: on its near side, halfway up
+      const { grab, mouth, hold } = sipTmp;
+      grab.copy(rest).addScaledVector(forward, -0.14).addScaledVector(right, 0.03).addScaledVector(UP, 0.11);
+      // where it drinks: the rim at his mouth, a little in front of his face
+      nodes.Head.getWorldPosition(mouth);
+      mouth.addScaledVector(forward, 0.3).addScaledVector(UP, -0.2);
+      hold.copy(mouth).sub(rest).sub(tmp.v[1].set(0, MUG_HEIGHT, 0)).add(grab); // wrist when the rim is at the mouth
+      tmp.target.copy(grab).lerp(hold, sipLift);
+      place("Left", tmp.target, elbowPole("Left", 0.2, 0.5), sipReach);
+      tmp.palmDir.copy(rest).sub(nodes.LeftHand.getWorldPosition(tmp.v[2])).setY(0).normalize();
+      orientHand("Left", tmp.fingersDir.copy(forward).addScaledVector(right, 0.4), tmp.palmDir, sipReach);
+      shapeHand("Left", "grip", sipReach);
+      // the mug goes with the hand between taking it and putting it back, tipping as he drinks
+      const holding = tc >= SIP.take && tc <= SIP.release;
+      if (holding) {
+        nodes.LeftHand.getWorldPosition(cup.mug.position).sub(grab).add(rest);
+        sipTmp.tilt.setFromAxisAngle(right, 0.75 * sipDrink);
+        cup.mug.quaternion.copy(sipTmp.tilt);
+      } else {
+        cup.mug.position.copy(rest);
+        cup.mug.quaternion.identity();
+      }
+      if (cup.steam) cup.steam.position.copy(cup.mug.position).sub(rest);
+    }
     // "One moment": right hand up in front of his shoulder, palm to you, index finger raised
     if (oneMoment > 0.001) {
       const { target, side, toward, fingersDir } = tmp;
@@ -468,8 +547,20 @@ export function Avatar(props) {
       orientHand("Right", fingersDir.copy(UP).addScaledVector(forward, 0.15), toward, oneMoment);
       shapeHand("Right", "oneMoment", oneMoment);
     }
-    const typingHands = lean.current * (1 - handsOff);
+    const typingHands = lean.current * (1 - handsOff) * (1 - sipReach);
     if (typingHands > 0.001) {
+      // The clip turns both hands in until the fingertips meet: point them mostly forward, at the
+      // monitor, keeping a slight natural inward angle
+      const { forward } = body();
+      for (const side of ["Left", "Right"]) {
+        const hand = nodes[`${side}Hand`];
+        const [turn, parent, world] = tmp.q;
+        const fingers = tmp.v[0].set(0, 1, 0).applyQuaternion(hand.getWorldQuaternion(world)).setY(0).normalize();
+        const angle = Math.atan2(fingers.x * forward.z - fingers.z * forward.x, fingers.x * forward.x + fingers.z * forward.z);
+        turn.setFromAxisAngle(UP, -angle * 0.75 * typingHands);
+        hand.parent.getWorldQuaternion(parent).invert();
+        hand.quaternion.copy(parent.multiply(turn).multiply(world));
+      }
       for (const side of ["Left", "Right"]) {
         nodes[`${side}Hand`].rotateX(TYPING_FLEX * typingHands);
         for (const finger of FINGERS.slice(1))

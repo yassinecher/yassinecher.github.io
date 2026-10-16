@@ -63,7 +63,7 @@ const Drawing = ({ name }) => {
 };
 
 export const MoodMarks = ({ mood }) => (
-  <div id="avatar-mood" aria-hidden className="pointer-events-none fixed left-0 top-0 z-10" style={{ willChange: "transform" }}>
+  <div id="avatar-mood" aria-hidden className="pointer-events-none fixed left-0 top-0 z-10 max-md:z-[35]" style={{ willChange: "transform" }}>
     {mood && (
       <div
         key={mood.name + mood.line}

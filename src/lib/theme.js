@@ -44,18 +44,22 @@ export const useLights = () => {
 };
 
 // Puts the current lights on <html data-theme>, which swaps the colour tokens in index.css.
-// Colours ease over for a moment on a change instead of snapping.
+// The change is one crossfade of the whole page done by the compositor (View Transitions), not
+// hundreds of per-element colour transitions, which made it stutter. Browsers without it switch
+// at once.
 export const ThemeSync = () => {
   const { evening } = useLights();
   useEffect(() => {
     const root = document.documentElement;
     const theme = evening ? "night" : "day";
     if (root.dataset.theme === theme) return;
-    root.classList.add("theme-fade");
-    root.dataset.theme = theme;
-    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", evening ? NIGHT_PAPER : DAY_PAPER);
-    const id = setTimeout(() => root.classList.remove("theme-fade"), 900);
-    return () => clearTimeout(id);
+    const apply = () => {
+      root.dataset.theme = theme;
+      document.querySelector('meta[name="theme-color"]')?.setAttribute("content", evening ? NIGHT_PAPER : DAY_PAPER);
+    };
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (document.startViewTransition && !reduce && document.visibilityState === "visible") document.startViewTransition(apply);
+    else apply();
   }, [evening]);
   return null;
 };

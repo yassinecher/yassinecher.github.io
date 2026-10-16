@@ -16,19 +16,19 @@ const DESKTOP_STOPS = [
   { pos: [-9.5, 7.8, 6], target: [1.1, 3.1, -2.7], shift: -6.5 }, // contact: evening, by the desk
 ];
 
-// Portrait screens: the room sits in the upper part, text below it.
+// Phones: the room has its own panel at the top of the screen (about square), framed centred
 const MOBILE_STOPS = [
-  { pos: [-40, 31, 40], target: [0.5, -2.2, 0.5], shift: 0 },
-  { pos: [-22, 17, 19], target: [-1.5, 0, -2.5], shift: 0 },
-  { pos: [-20, 17, 22], target: [1, 0, -2], shift: 0 },
-  { pos: [-8.5, 7.5, 5], target: [0.1, 2, -4.2], shift: 0 },
-  { pos: [-11, 9, 7.5], target: [0.4, 1.6, -3], shift: 0 },
+  { pos: [-30, 25, 30], target: [0.4, 2.2, -0.2], shift: 0 }, // the whole room
+  { pos: [-17, 13, 16], target: [-1.6, 2.8, -2.4], shift: 0 }, // shelves and desk
+  { pos: [-13, 10.5, 15], target: [0.6, 2.6, -2.4], shift: 0 }, // the desk from the side
+  { pos: [-8.6, 6.4, 4.2], target: [0.6, 3.2, -3.6], shift: 0 }, // the monitor and him
+  { pos: [-9.8, 7.4, 6.6], target: [0.8, 2.9, -2.6], shift: 0 }, // him, turned to you
 ];
 
 const smooth = (t) => t * t * (3 - 2 * t);
 const reducedMotion = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-const CameraRig = ({ progressRef, pointerRef }) => {
+const CameraRig = ({ progressRef, pointerRef, phone }) => {
   const three = useThree();
   const { camera, size } = three;
   if (import.meta.env.DEV) window.__three = three;
@@ -40,7 +40,7 @@ const CameraRig = ({ progressRef, pointerRef }) => {
 
   useFrame((_, delta) => {
     const dt = Math.min(delta, 0.1);
-    const stops = size.width / size.height < 0.9 ? MOBILE_STOPS : DESKTOP_STOPS;
+    const stops = phone ? MOBILE_STOPS : DESKTOP_STOPS;
     const p = THREE.MathUtils.clamp(progressRef.current, 0, stops.length - 1);
     const i = Math.min(Math.floor(p), stops.length - 2);
     const t = smooth(p - i);
@@ -53,7 +53,8 @@ const CameraRig = ({ progressRef, pointerRef }) => {
 
     // A little parallax with the pointer, so the room feels alive
     if (!reducedMotion) {
-      tmp.pos.x += pointerRef.current.x * 0.6;
+      // on a phone this is a finger dragged across the room: look around a little more
+      tmp.pos.x += pointerRef.current.x * (phone ? 3 : 0.6);
       tmp.pos.y += pointerRef.current.y * 0.4;
     }
 
@@ -98,7 +99,7 @@ export const SEAT = {
   scale: 0.945 / 0.44,
   // Where his wrists rest on the keyboard (room coordinates); reached by IK, so they stay on the
   // keys whatever his size and the swivel of the chair
-  hands: { Left: [-0.04, 2.185, -3.31], Right: [0.26, 2.19, -3.34] },
+  hands: { Left: [-0.14, 2.185, -3.3], Right: [0.36, 2.19, -3.34] },
   // Measured against the desk (top y 1.9), seat (y 1.6) and keyboard (x -0.3..0.5, z -3.75..-3.45):
   // a slight lean, fingertips resting on the keys (they only dip in on a key press), head up
   // toward the monitor, thighs under the desk, feet flat on the floor.
@@ -128,7 +129,7 @@ export const SEAT = {
 // The room is baked, so only the avatar needs real lights. Daytime: soft sky and warm floor
 // bounce plus window light. Evening: the cool monitor in front of him, the warm desk lamp, the
 // pink TV behind, and enough fill that he never turns into a silhouette.
-const AvatarLights = ({ nightRef }) => {
+const AvatarLights = ({ nightRef, tvRef }) => {
   const hemi = useRef();
   const sun = useRef();
   const screen = useRef();
@@ -143,7 +144,7 @@ const AvatarLights = ({ nightRef }) => {
     sun.current.intensity = THREE.MathUtils.lerp(1.1, 0.05, k);
     screen.current.intensity = THREE.MathUtils.lerp(0, 3.2, k);
     lamp.current.intensity = THREE.MathUtils.lerp(0, 1.8, k);
-    tv.current.intensity = THREE.MathUtils.lerp(0, 1.4, k);
+    tv.current.intensity = THREE.MathUtils.lerp(0, 1.4, k) * (tvRef.current.level ?? 1);
   });
   return (
     <>
@@ -229,16 +230,18 @@ const SeatRig = ({ swivelRef, attentionRef, moodRef, colliderRef }) => {
   return null;
 };
 
-export const Scene = ({ progressRef, nightRef, screenRef, pointerRef, attentionRef, moodRef, onAction, onAvatarHover }) => {
+export const Scene = ({ progressRef, nightRef, screenRef, pointerRef, attentionRef, moodRef, coffeeRef, onAction, onAvatarHover, phone }) => {
   const swivelRef = useRef();
   const colliderRef = useRef();
+  // Whether the TV is on, and its glow (Room switches it; the avatar's lights follow)
+  const tvRef = useRef({ on: true, level: 1 });
   // He's busy: hovering annoys him, a click (a poke) gets you shooed away
   const hover = roomInteractive("That's me · busy coding", "poke", onAction);
   return (
     <>
-      <AvatarLights nightRef={nightRef} />
-      <CameraRig progressRef={progressRef} pointerRef={pointerRef} />
-      <Room nightRef={nightRef} screenRef={screenRef} onAction={onAction} swivelRef={swivelRef}>
+      <AvatarLights nightRef={nightRef} tvRef={tvRef} />
+      <CameraRig progressRef={progressRef} pointerRef={pointerRef} phone={phone} />
+      <Room nightRef={nightRef} screenRef={screenRef} onAction={onAction} swivelRef={swivelRef} tvRef={tvRef} coffeeRef={coffeeRef}>
         <group
           position={SEAT.position}
           rotation-y={SEAT.rotationY}
@@ -252,6 +255,7 @@ export const Scene = ({ progressRef, nightRef, screenRef, pointerRef, attentionR
             hands={SEAT.hands}
             attentionRef={attentionRef}
             moodRef={moodRef}
+            coffeeRef={coffeeRef}
           />
         </group>
         {/* What the pointer actually hits: a box around his torso and head that follows him
@@ -296,8 +300,8 @@ export const AvatarTracker = ({ noteId, moodId, visibleRef }) => {
     head.current ??= scene.getObjectByName("Head");
     if (!head.current) return;
     head.current.getWorldPosition(v).project(camera);
-    const x = Math.round((v.x * 0.5 + 0.5) * size.width);
-    const y = Math.round((-v.y * 0.5 + 0.5) * size.height);
+    const x = Math.round((v.x * 0.5 + 0.5) * size.width + (size.left ?? 0));
+    const y = Math.round((-v.y * 0.5 + 0.5) * size.height + (size.top ?? 0));
     const { note, mood } = elements.current;
     if (note) {
       const shown = visibleRef.current < 0.35;
@@ -307,9 +311,9 @@ export const AvatarTracker = ({ noteId, moodId, visibleRef }) => {
     if (mood && mood.firstChild) {
       // Kept on screen even when his head is at the edge of the frame, and near the right edge
       // the drawings go on the other side of his head
-      const mx = THREE.MathUtils.clamp(x, 90, size.width - 90);
+      const mx = THREE.MathUtils.clamp(x, 90, (size.left ?? 0) + size.width - 90);
       write(mood, "mood", `translate(${mx}px, ${y}px)`, (el, value) => (el.style.transform = value));
-      write(mood, "side", x > size.width - 240 ? "left" : "right", (el, value) => (el.dataset.side = value));
+      write(mood, "side", x > (size.left ?? 0) + size.width - 240 ? "left" : "right", (el, value) => (el.dataset.side = value));
     }
   });
   return null;

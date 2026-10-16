@@ -6,6 +6,7 @@ import { asset } from "../lib/asset";
 import { NIGHT_LIGHTS, createBakedMaterial } from "./bakedMaterial";
 import { createCoffeeSteamMaterial } from "./coffeeSteamMaterial";
 import { createMacScreen, createPcScreen, createTvScreen } from "./screens";
+import { strum, tvSound } from "../lib/sound";
 
 // "My Room in 3D" by Bruno Simon (models and bakes), assembled in its original coordinates.
 
@@ -85,11 +86,71 @@ export const roomInteractive = (label, action, onAction) => ({
   },
   onClick: (e) => {
     e.stopPropagation();
+    // A tap has no hover: show what it was for a moment
+    if (e.nativeEvent?.pointerType === "touch") {
+      const tip = document.getElementById("room-tip");
+      if (tip) {
+        tip.textContent = label;
+        tip.style.transform = `translate(${e.nativeEvent.clientX - 60}px, ${e.nativeEvent.clientY + 24}px)`;
+        tip.dataset.show = "true";
+        clearTimeout(tip.hideTimer);
+        tip.hideTimer = setTimeout(() => (tip.dataset.show = "false"), 1500);
+      }
+    }
     onAction?.(action);
   },
 });
 
-export const Room = ({ nightRef, screenRef, onAction, swivelRef, children }) => {
+// The coffee mug is baked into the room mesh: its triangles (all within this little cylinder on
+// the desk, measured) are lifted out into a mesh of their own, so he can pick it up.
+const MUG = new THREE.Vector3(-1.3956, 1.925, -3.4155);
+const MUG_RADIUS = 0.25;
+const MUG_TOP = 2.25;
+const mugs = new WeakMap();
+const liftMug = (mesh, material) => {
+  const geometry = mesh.geometry;
+  if (mugs.has(geometry)) return mugs.get(geometry);
+  mesh.updateWorldMatrix(true, false);
+  const position = geometry.attributes.position;
+  const index = geometry.index;
+  const v = new THREE.Vector3();
+  const inMug = (i) => {
+    v.fromBufferAttribute(position, i).applyMatrix4(mesh.matrixWorld);
+    return Math.hypot(v.x - MUG.x, v.z - MUG.z) < MUG_RADIUS && v.y > MUG.y && v.y < MUG_TOP;
+  };
+  const keep = [];
+  const take = [];
+  for (let t = 0; t < index.count; t += 3) {
+    const a = index.getX(t), b = index.getX(t + 1), c = index.getX(t + 2);
+    (inMug(a) && inMug(b) && inMug(c) ? take : keep).push(a, b, c);
+  }
+  if (!take.length) return null;
+  const mugGeometry = new THREE.BufferGeometry();
+  for (const [name, attribute] of Object.entries(geometry.attributes)) {
+    const size = attribute.itemSize;
+    const out = new Float32Array(take.length * size);
+    const get = [attribute.getX, attribute.getY, attribute.getZ, attribute.getW];
+    take.forEach((vertex, k) => {
+      for (let c = 0; c < size; c++) out[k * size + c] = get[c].call(attribute, vertex);
+    });
+    mugGeometry.setAttribute(name, new THREE.BufferAttribute(out, size));
+  }
+  mugGeometry.applyMatrix4(mesh.matrixWorld);
+  mugGeometry.translate(-MUG.x, -MUG.y, -MUG.z);
+  geometry.setIndex(keep);
+  const group = new THREE.Group();
+  group.position.copy(MUG);
+  group.add(new THREE.Mesh(mugGeometry, material));
+  // an easier target for the pointer than the mug itself
+  const hit = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.5, 0.55), new THREE.MeshBasicMaterial({ visible: false }));
+  hit.position.y = 0.15;
+  group.add(hit);
+  group.userData.rest = MUG.clone();
+  mugs.set(geometry, group);
+  return group;
+};
+
+export const Room = ({ nightRef, screenRef, onAction, swivelRef, tvRef, coffeeRef, children }) => {
   const [room, chair, pc, mac, steam, elgato, leds, loupedeck] = MODELS.map((name) => useGLTF(model(name)));
   const [day, night, lightMap, ledMask] = useTexture([
     texture("bakedDay.jpg"),
@@ -136,6 +197,32 @@ export const Room = ({ nightRef, screenRef, onAction, swivelRef, children }) => 
     setMaterial(elgato.scene, new THREE.MeshBasicMaterial({ color: "#ffffff" }));
   }, [room, chair, steam, elgato, baked, steamMaterial]);
 
+  const mug = useMemo(() => liftMug(room.scene.getObjectByProperty("isMesh", true), baked), [room, baked]);
+  useLayoutEffect(() => {
+    if (!coffeeRef || !mug) return;
+    coffeeRef.current.mug = mug;
+    coffeeRef.current.steam = steam.scene;
+  }, [coffeeRef, mug, steam]);
+
+  // Things in the room that answer for themselves: the TV powers off and on, the guitar plays
+  const handle = (action) => {
+    if (action === "tv") {
+      const on = !programs.tv.on;
+      programs.tv.setPower(on, performance.now() / 1000);
+      tvSound(on);
+      if (tvRef) tvRef.current.on = on;
+    } else if (action === "guitar") strum();
+    else onAction?.(action);
+  };
+  const guitarHover = roomInteractive("The guitar · give it a strum", "guitar", handle);
+  const guitar = {
+    ...guitarHover,
+    onPointerOver: (e) => {
+      guitarHover.onPointerOver(e);
+      strum();
+    },
+  };
+
   const tvMesh = useMemo(() => {
     // The TV is part of the baked room; its screen gets a plane just in front of it.
     const geometry = new THREE.PlaneGeometry(4.23, 2.37);
@@ -162,7 +249,9 @@ export const Room = ({ nightRef, screenRef, onAction, swivelRef, children }) => 
     const u = baked.uniforms;
     const nightTarget = nightRef.current;
     u.uNightMix.value = damp(u.uNightMix.value, nightTarget, 2.5, dt);
-    u.uLightTvStrength.value = u.uNightMix.value * NIGHT_LIGHTS.tv;
+    // The TV's glow on the room goes with it when it's switched off
+    if (tvRef) tvRef.current.level = damp(tvRef.current.level ?? 1, tvRef.current.on === false ? 0 : 1, 4, dt);
+    u.uLightTvStrength.value = u.uNightMix.value * NIGHT_LIGHTS.tv * (tvRef?.current.level ?? 1);
     u.uLightDeskStrength.value = u.uNightMix.value * NIGHT_LIGHTS.desk;
     u.uLightPcStrength.value = u.uNightMix.value * NIGHT_LIGHTS.pc;
 
@@ -201,7 +290,9 @@ export const Room = ({ nightRef, screenRef, onAction, swivelRef, children }) => 
       ["tv", drawTv, tvMesh],
     ]) {
       clocks[key] += dt;
-      const overdue = clocks[key] * SCREEN_FPS[key];
+      const fps = programs[key].fps?.(performance.now() / 1000) ?? SCREEN_FPS[key];
+      if (fps === 0) continue;
+      const overdue = clocks[key] * fps;
       if (overdue < 1) continue;
       if (!frustum.f.intersectsObject(mesh)) {
         clocks[key] = 0;
@@ -209,8 +300,8 @@ export const Room = ({ nightRef, screenRef, onAction, swivelRef, children }) => 
       }
       if (!due || overdue > due.overdue) due = { key, draw, overdue };
     }
-    if (due && !gliding) {
-      due.draw(time, clocks[due.key]);
+    if (due && (!gliding || due.overdue > 3)) {
+      due.draw(performance.now() / 1000, clocks[due.key]);
       clocks[due.key] = 0;
     }
   });
@@ -222,13 +313,19 @@ export const Room = ({ nightRef, screenRef, onAction, swivelRef, children }) => 
         <primitive object={chair.scene} />
         {children}
       </group>
-      <primitive object={pc.scene} {...roomInteractive("My monitor · see my work", "work", onAction)} />
-      <primitive object={mac.scene} {...roomInteractive("MacBook · what I work with", "about", onAction)} />
+      <primitive object={pc.scene} {...roomInteractive("My monitor · see my work", "work", handle)} />
+      <primitive object={mac.scene} {...roomInteractive("MacBook · what I work with", "about", handle)} />
       <primitive object={steam.scene} />
-      <primitive object={elgato.scene} />
+      {mug && <primitive object={mug} {...roomInteractive("My coffee · let him take a sip", "coffee", handle)} />}
+      {/* The guitar is part of the baked room: a box around it takes the pointer */}
+      <mesh position={[-3.1, 1.3, -3.75]} {...guitar}>
+        <boxGeometry args={[0.8, 2.5, 0.8]} />
+        <meshBasicMaterial visible={false} />
+      </mesh>
+      <primitive object={elgato.scene} {...roomInteractive("The ring light · switch the lights", "lights", handle)} />
       <primitive object={leds.scene} />
       <primitive object={loupedeck.scene} />
-      <primitive object={tvMesh} {...roomInteractive("The TV · switch the lights", "lights", onAction)} />
+      <primitive object={tvMesh} {...roomInteractive("The TV · switch it off and on", "tv", handle)} />
     </group>
   );
 };
