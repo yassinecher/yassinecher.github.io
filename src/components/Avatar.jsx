@@ -39,10 +39,15 @@ const smoothstep = (edge0, edge1, x) => THREE.MathUtils.smoothstep(x, edge0, edg
 // the palm), the fingers run along the hand's +y and the palm faces its +z.
 const FINGERS = ["Thumb", "Index", "Middle", "Ring", "Pinky"];
 const X_AXIS = new THREE.Vector3(1, 0, 0);
-// Typing: on top of the clip, fingers curved over the keys and the wrist bent a little, so the
-// fingertips meet the keys with the wrists off them (instead of flat hands on the keyboard)
-const TYPING_CURL = [0.22, 0.28, 0.16];
-const TYPING_FLEX = 0.15;
+// Typing: on top of the clip, fingers a little more curved and the wrist bent a touch, so the
+// fingertips meet the keys with the wrists off them (picked from close-ups: flat hands looked
+// like paddles, more curl like claws)
+const TYPING_CURL = [0.11, 0.14, 0.08];
+const TYPING_FLEX = 0.12;
+// Resting on his thighs (picked from close-ups): the wrist halfway down the thigh and toward the
+// middle of the leg, elbow down by his side and back, the hand flat along the leg with the
+// fingers nearly straight
+const REST = { along: 0.5, up: 0.26, inward: 0.15, curl: 0.35, back: 0.6, out: 0.25, drop: 0.03 };
 const HAND_SHAPES = {
   // resting on his thighs: loose, gently bent
   relaxed: { Thumb: [0.1, 0.15, 0.1], Index: [0.15, 0.2, 0.12], Middle: [0.2, 0.25, 0.15], Ring: [0.25, 0.3, 0.15], Pinky: [0.3, 0.3, 0.15] },
@@ -135,13 +140,13 @@ export function Avatar(props) {
   }, [fingerRest]);
 
   // Bends a hand's fingers toward one of HAND_SHAPES, by `weight`
-  const shapeHand = (side, shape, weight) => {
+  const shapeHand = (side, shape, weight, scale = 1) => {
     const target = tmp.q[0];
     for (const finger of FINGERS)
       for (let joint = 1; joint <= 3; joint++) {
         const name = `${side}Hand${finger}${joint}`;
         if (!fingerRest[name]) continue;
-        target.setFromAxisAngle(X_AXIS, HAND_SHAPES[shape][finger][joint - 1]).premultiply(fingerRest[name]);
+        target.setFromAxisAngle(X_AXIS, HAND_SHAPES[shape][finger][joint - 1] * scale).premultiply(fingerRest[name]);
         nodes[name].quaternion.slerp(target, weight);
       }
   };
@@ -427,22 +432,21 @@ export function Avatar(props) {
     if (handsOff > 0.001) {
       const { target, fingersDir, palmDir, side: across } = tmp;
       for (const side of ["Left", "Right"]) {
-        const [hip, knee, otherHip, elbow] = tmp.v;
+        const [hip, knee, otherHip] = tmp.v;
         nodes[`${side}UpLeg`].getWorldPosition(hip);
         nodes[`${side}Leg`].getWorldPosition(knee);
         nodes[`${side === "Left" ? "Right" : "Left"}UpLeg`].getWorldPosition(otherHip);
         across.copy(otherHip).sub(hip).setY(0);
         // The top of the thigh is 0.2 arm-lengths above the leg bone (measured on the trousers);
         // the wrist sits a hand's thickness above that, on top of the leg rather than its side
-        target.copy(hip).lerp(knee, 0.6).addScaledVector(UP, 0.25 * length).addScaledVector(across, 0.12);
+        target.copy(hip).lerp(knee, REST.along).addScaledVector(UP, REST.up * length).addScaledVector(across, REST.inward);
         const thigh = tmp.toward.copy(knee).sub(hip).normalize(); // (reach reuses tmp.v)
         // Elbow down by his side and a little back: the forearm then lies along the thigh
-        place(side, target, elbowPole(side, 0.6, 0.25), handsOff);
-        // The hand carries on from the forearm onto the thigh: a straight, relaxed wrist
-        nodes[`${side}ForeArm`].getWorldPosition(elbow);
-        fingersDir.copy(target).sub(elbow).normalize().multiplyScalar(0.45).addScaledVector(thigh, 0.55);
+        place(side, target, elbowPole(side, REST.back, REST.out), handsOff);
+        // The hand lies along the thigh, fingers toward the knee and a little inward
+        fingersDir.copy(thigh).addScaledVector(UP, -REST.drop).addScaledVector(across, REST.inward * 0.5);
         orientHand(side, fingersDir, palmDir.set(0, -1, 0), handsOff);
-        shapeHand(side, "relaxed", handsOff);
+        shapeHand(side, "relaxed", handsOff, REST.curl);
       }
     }
     // "One moment": right hand up in front of his shoulder, palm to you, index finger raised
