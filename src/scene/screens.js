@@ -1,3 +1,4 @@
+import { drawFilm } from "./tvFilm";
 import { TOKEN_COLORS, tokenizeLine } from "../lib/highlight";
 
 // Canvas "programs" for the room's screens. Each exposes draw(ctx, w, h, time, dt) and is redrawn
@@ -569,10 +570,8 @@ export const createMacScreen = () => {
 // ---------------------------------------------------------------------------------------------
 // TV: a DVD-style bouncing logo that changes colour on every wall, and celebrates corners.
 
-const LOGO_COLORS = ["#e2502c", "#f2b134", "#5fb0e5", "#7bc47f", "#c084fc", "#f472b6"];
 
 export const createTvScreen = () => {
-  const s = { x: 120, y: 90, vx: 150, vy: 105, color: 0, flash: 0 };
   // Power: switching off squeezes the picture into a bright line, then a dot, like an old tube;
   // switching on opens it back up
   const power = { on: true, at: -10 };
@@ -593,12 +592,12 @@ export const createTvScreen = () => {
     // Redraw rate: smooth while switching, nothing at all once it's dark
     fps(time) {
       const since = time - power.at;
-      if (power.on) return since < ON ? 60 : 15;
+      if (power.on) return since < ON ? 60 : 24; // the film runs at cinema rate
       return since < OFF + 0.35 ? 60 : 0;
     },
     draw(ctx, w, h, time, dt) {
       const since = time - power.at;
-      if (power.on && since >= ON) return tv.show(ctx, w, h, time, dt);
+      if (power.on && since >= ON) return drawFilm(ctx, w, h, time);
       ctx.fillStyle = "#050506";
       ctx.fillRect(0, 0, w, h);
       if (!power.on && since >= OFF) {
@@ -618,7 +617,7 @@ export const createTvScreen = () => {
         buffer.height = ctx.canvas.height;
         buffer.getContext("2d").setTransform(ctx.getTransform());
       }
-      tv.show(buffer.getContext("2d"), w, h, time, dt);
+      drawFilm(buffer.getContext("2d"), w, h, time);
       // p: 0 = the full picture, 1 = gone
       const p = power.on ? 1 - since / ON : since / OFF;
       const squeeze = p < 0.6 ? 1 - (p / 0.6) ** 2 * 0.985 : 0.015;
@@ -628,48 +627,6 @@ export const createTvScreen = () => {
       ctx.drawImage(buffer, 0, 0, buffer.width, buffer.height, (w - dw) / 2, (h - dh) / 2, dw, dh);
       ctx.fillStyle = `rgba(235,240,255,${Math.min(1, p * 1.5)})`;
       ctx.fillRect((w - dw) / 2, (h - dh) / 2, dw, dh);
-    },
-    show(ctx, w, h, time, dt) {
-      const lw = 230;
-      const lh = 120;
-      s.x += s.vx * dt;
-      s.y += s.vy * dt;
-      let hits = 0;
-      if (s.x < 0 || s.x + lw > w) {
-        s.vx *= -1;
-        s.x = Math.max(0, Math.min(s.x, w - lw));
-        hits++;
-      }
-      if (s.y < 0 || s.y + lh > h) {
-        s.vy *= -1;
-        s.y = Math.max(0, Math.min(s.y, h - lh));
-        hits++;
-      }
-      if (hits) s.color = (s.color + 1) % LOGO_COLORS.length;
-      if (hits === 2) s.flash = 1.5;
-      s.flash = Math.max(0, s.flash - dt);
-
-      ctx.fillStyle = "#08080a";
-      ctx.fillRect(0, 0, w, h);
-      const color = LOGO_COLORS[s.color];
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 6;
-      roundRect(ctx, s.x, s.y, lw, lh, 18);
-      ctx.stroke();
-      ctx.fillStyle = color;
-      ctx.font = `italic 400 76px "Instrument Serif", Georgia, serif`;
-      ctx.textAlign = "center";
-      ctx.fillText("Yassine", s.x + lw / 2, s.y + 74);
-      ctx.font = `600 16px ${MONO}`;
-      ctx.fillText("FULL-STACK", s.x + lw / 2, s.y + 102);
-      ctx.textAlign = "left";
-      if (s.flash > 0) {
-        ctx.fillStyle = `rgba(255,255,255,${Math.min(0.5, s.flash / 3)})`;
-        ctx.font = `700 40px ${SANS}`;
-        ctx.textAlign = "center";
-        ctx.fillText("CORNER!", w / 2, h / 2);
-        ctx.textAlign = "left";
-      }
     },
   };
   return tv;
