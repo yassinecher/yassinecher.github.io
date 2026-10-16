@@ -218,6 +218,51 @@ body::after {
     translate: 3px 0;
   }
 }
+/* Room effects (components/RoomFx.jsx): a puff of dust, sound waves */
+.fx-puff {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: fx-puff 0.9s cubic-bezier(0.2, 0.7, 0.3, 1) both;
+  animation-delay: var(--d, 0s);
+}
+@keyframes fx-puff {
+  from {
+    opacity: 0.85;
+    transform: translate(0, 0) scale(0.3);
+  }
+  to {
+    opacity: 0;
+    transform: translate(var(--x), var(--y)) scale(1.35);
+  }
+}
+.fx-speck {
+  animation: fx-speck 0.8s ease-out both;
+}
+@keyframes fx-speck {
+  to {
+    opacity: 0;
+    transform: translate(var(--x), var(--y));
+  }
+}
+.fx-wave {
+  transform-box: view-box;
+  transform-origin: center;
+  animation: fx-wave 0.9s ease-out both;
+  animation-delay: var(--d, 0s);
+}
+@keyframes fx-wave {
+  from {
+    opacity: 0;
+    transform: scale(0.7);
+  }
+  25% {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.25);
+  }
+}
 .fallback-in {
   animation: mood-in 0.6s cubic-bezier(0.2, 0.8, 0.25, 1) both;
 }

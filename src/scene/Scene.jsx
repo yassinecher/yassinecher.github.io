@@ -3,6 +3,7 @@ import { useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { Avatar } from "../components/Avatar";
+import { roomFx } from "../components/RoomFx";
 import { CHAIR_PIVOT, Room, roomInteractive } from "./Room";
 
 // Camera stops, one per page section, in the room's coordinates. The page scroll position is a
@@ -273,6 +274,11 @@ export const Scene = ({ progressRef, nightRef, screenRef, pointerRef, attentionR
             onAvatarHover?.();
           }}
           onPointerMove={() => onAvatarHover?.()}
+          onClick={(e) => {
+            // a little puff of dust where he was tapped
+            roomFx("dust", e.nativeEvent.clientX, e.nativeEvent.clientY);
+            hover.onClick(e);
+          }}
         >
           <boxGeometry />
         </mesh>

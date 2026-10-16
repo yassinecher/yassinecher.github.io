@@ -6,6 +6,7 @@ import Lenis from "lenis";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { MoodMarks } from "../components/MoodMarks";
+import { RoomFx } from "../components/RoomFx";
 import { SECTIONS, SiteNav } from "../components/site/Nav";
 import { education, experience, languages, profile, stack } from "../data/profile";
 import { projects as allProjects } from "../data/projects";
@@ -756,6 +757,7 @@ export const Home = () => {
       </div>
 
       <MoodMarks mood={mood} />
+      <RoomFx />
 
       {/* Label for clickable things in the room */}
       <div

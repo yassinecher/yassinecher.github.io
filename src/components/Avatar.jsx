@@ -68,9 +68,10 @@ const REST = { along: 0.5, up: 0.26, inward: 0.15, curl: 0.35, back: 0.6, out: 0
 const SIP = { reach: [0, 1.15], take: 1.2, lift: [1.2, 2.4], drink: [2.4, 3.6], lower: [3.6, 4.8], release: 4.9, back: [4.9, 6], length: 6.1 };
 const MUG_HEIGHT = 0.26;
 // How his left hand holds it (from the measured hand axes: fingers +y, palm +z, thumb toward
-// -x): palm on the mug's near side, fingers wrapping round its left, thumb up. The mug's body
-// radius is 0.11; the palm sits that plus the hand's thickness from its axis, and the palm's
-// centre is this far from the wrist along the fingers.
+// -x): the way a hand reaching forward takes a cup, from its outer (left) side, fingers along
+// the reach and round its front, palm facing in toward the mug, thumb up, so the wrist stays
+// straight. The mug's body radius is 0.11; the palm sits that plus the hand's thickness from its
+// axis, with the mug at the knuckles, this far from the wrist along the fingers.
 const MUG_GRIP = { gap: 0.155, palm: 0.24, height: 0.08 };
 // His lips, in the head bone's own space (measured on the face mesh: below the nose, in front)
 const LIPS = new THREE.Vector3(0, 0.06, 0.34);
@@ -166,6 +167,8 @@ export function Avatar(props) {
       turn: new THREE.Quaternion(),
       pose: new THREE.Quaternion(),
       arc: new THREE.Vector3(),
+      reach: new THREE.Vector3(),
+      palmIn: new THREE.Vector3(),
       inverse: new THREE.Quaternion(),
       handQ: new THREE.Quaternion(),
       near: new THREE.Vector3(),
@@ -281,11 +284,11 @@ export function Avatar(props) {
     forward.crossVectors(UP, right).normalize();
     return { right, forward };
   };
-  const elbowPole = (side, back, out) => {
+  const elbowPole = (side, back, out, down = 1) => {
     const { right, forward } = body();
     return nodes[`${side}Arm`]
       .getWorldPosition(tmp.pole)
-      .addScaledVector(UP, -1)
+      .addScaledVector(UP, -down)
       .addScaledVector(forward, -back)
       .addScaledVector(right, side === "Right" ? out : -out);
   };
@@ -465,6 +468,12 @@ export function Avatar(props) {
     }
     if (oneMoment > 0.001) add(after, "Head", 0.05 * oneMoment, 0, 0.07 * oneMoment); // a small, friendly nod
     if (sipDrink > 0.001) add(after, "Head", -0.14 * sipDrink); // head back a little as he drinks
+    if (sipLift > 0.001) {
+      // and he sits up for it, chest up, the way you straighten to drink
+      add(offsets, "Spine", -0.1 * sipLift);
+      add(offsets, "Spine1", -0.06 * sipLift);
+      add(offsets, "Spine2", -0.04 * sipLift);
+    }
     const savour = tc < 0 ? 0 : between(SIP.drink[1], SIP.drink[1] + 0.4) * (1 - between(...SIP.back)); // after the sip
     // Hello (arriving at contact): a big smile, head tilted, and a wave
     const tg = mood?.name === "greeting" ? t : Infinity;
@@ -600,22 +609,25 @@ export function Avatar(props) {
         bone.quaternion.copy(parent.multiply(turn).multiply(world));
       }
       turnToward(nodes.Head, rest, 0.55 * sipReach * (1 - sipLift));
-      // where the wrist takes the mug: palm against its near side, fingers round to the left
+      // the reach: from his shoulder toward the mug, flattened, halfway to straight ahead
+      const reachDir = sipTmp.reach.copy(rest).sub(nodes.LeftArm.getWorldPosition(tmp.v[0])).setY(0).normalize().add(forward).normalize();
+      const palmIn = sipTmp.palmIn.crossVectors(reachDir, UP).normalize(); // toward the mug, from its left
+      // where the wrist takes the mug
       const { grab, mouth, hold } = sipTmp;
       grab
         .copy(rest)
         .addScaledVector(UP, MUG_GRIP.height)
-        .addScaledVector(forward, -MUG_GRIP.gap)
-        .addScaledVector(right, MUG_GRIP.palm);
+        .addScaledVector(palmIn, -MUG_GRIP.gap)
+        .addScaledVector(reachDir, -MUG_GRIP.palm);
       const hand = nodes.LeftHand;
       const holding = tc >= SIP.take && tc <= SIP.release;
       if (!holding) {
         // reaching for it (or letting go): the hand goes to the grip, palm forward, fingers to his
         // left, thumb up, and the mug sits on the desk
-        place("Left", grab, elbowPole("Left", 0.2, 0.55), sipReach);
+        place("Left", grab, elbowPole("Left", 0.5, 0.45), sipReach);
         // the hand opens on the way to the mug, closes round it, and opens again letting go
         shapeHand("Left", "open", sipReach);
-        orientHand("Left", tmp.fingersDir.copy(right).negate(), tmp.palmDir.copy(forward), sipReach);
+        orientHand("Left", tmp.fingersDir.copy(reachDir), tmp.palmDir.copy(palmIn), sipReach);
         sipTmp.held = false;
         cup.mug.position.copy(rest);
         cup.mug.quaternion.identity();
@@ -624,21 +636,20 @@ export function Avatar(props) {
         if (!sipTmp.held) {
           // the grip: the mug in the frame of the hand's grab pose (where the hand is when he
           // takes it; this frame's hand has already been put back on the keys)
-          const y = tmp.v[1].copy(right).negate();
-          const z = tmp.v[2].copy(forward).addScaledVector(y, -forward.dot(y)).normalize();
+          const y = tmp.v[1].copy(reachDir);
+          const z = tmp.v[2].copy(palmIn).addScaledVector(y, -palmIn.dot(y)).normalize();
           const x = tmp.v[3].crossVectors(y, z);
           sipTmp.handQ.setFromRotationMatrix(tmp.matrix.makeBasis(x, y, z));
           sipTmp.inHand.compose(grab, sipTmp.handQ, tmp.v[0].set(1, 1, 1)).invert();
           sipTmp.inHand.multiply(tmp.matrix.compose(rest, sipTmp.turn.identity(), tmp.v[0].set(1, 1, 1)));
           sipTmp.held = true;
         }
-        // On the way up it turns a quarter so his hand ends up at its side, not between the mug and
-        // his face; at the top it tips toward him, the near edge of the rim on his lips
+        // At the top it tips toward him, the near edge of the rim on his lips (his hand is at the
+        // mug's side, so beside his face)
         nodes.Head.updateWorldMatrix(true, false);
         nodes.Head.localToWorld(mouth.copy(LIPS));
         const face = tmp.v[1].copy(FACE).applyQuaternion(nodes.Head.getWorldQuaternion(tmp.q[0])).setY(0).normalize();
-        const turn = sipTmp.turn.setFromUnitVectors(tmp.v[2].copy(forward).negate(), tmp.v[3].copy(right).negate());
-        sipTmp.pose.identity().slerp(turn, sipLift);
+        sipTmp.pose.identity();
         const towardHim = tmp.v[2].copy(face).negate();
         sipTmp.tilt.setFromAxisAngle(tmp.v[3].crossVectors(UP, towardHim).normalize(), 0.75 * sipDrink);
         sipTmp.pose.premultiply(sipTmp.tilt);
@@ -658,10 +669,28 @@ export function Avatar(props) {
         cup.mug.updateWorldMatrix(true, false);
         sipTmp.matrix.copy(cup.mug.matrixWorld).multiply(tmp.matrix.copy(sipTmp.inHand).invert());
         sipTmp.matrix.decompose(tmp.target, sipTmp.handQ, tmp.v[3]);
-        // the elbow comes forward and out as the mug comes up, the way an arm drinks
-        place("Left", tmp.target, elbowPole("Left", THREE.MathUtils.lerp(0.2, -0.3, sipLift), THREE.MathUtils.lerp(0.55, 0.95, sipLift)), 1);
+        // the elbow stays behind and below the hand, so the forearm runs into the wrist (measured:
+        // about 25 degrees of wrist bend at his lips)
+        const elbowUp = Math.sqrt(sipLift); // the elbow leads the hand up
+        place("Left", tmp.target, elbowPole("Left", THREE.MathUtils.lerp(0.5, 1.1, elbowUp), THREE.MathUtils.lerp(0.45, 0.5, elbowUp), THREE.MathUtils.lerp(1, 0.6, elbowUp)), 1);
+        // On the way up the wrist gives a little toward the forearm (as a real one does, tipping
+        // the mug a touch), and is square to the mug again by the time it reaches his lips
+        const give = 0.6 * THREE.MathUtils.smoothstep(sipLift, 0, 0.4) * (1 - sipDrink);
+        if (give > 0.001) {
+          const forearm = tmp.v[0].copy(tmp.target).sub(nodes.LeftForeArm.getWorldPosition(tmp.v[1])).normalize();
+          const palmNow = tmp.v[2].set(0, 0, 1).applyQuaternion(sipTmp.handQ);
+          palmNow.addScaledVector(forearm, -palmNow.dot(forearm)).normalize();
+          const x = tmp.v[3].crossVectors(forearm, palmNow);
+          tmp.q[2].setFromRotationMatrix(tmp.matrix.makeBasis(x, forearm, palmNow));
+          sipTmp.handQ.slerp(tmp.q[2], give);
+        }
         hand.parent.getWorldQuaternion(tmp.q[1]).invert();
         hand.quaternion.copy(tmp.q[1].multiply(sipTmp.handQ));
+        // and the mug goes wherever the hand now is
+        hand.updateWorldMatrix(true, false);
+        sipTmp.matrix.multiplyMatrices(hand.matrixWorld, sipTmp.inHand);
+        if (cup.mug.parent) sipTmp.matrix.premultiply(tmp.matrix.copy(cup.mug.parent.matrixWorld).invert());
+        sipTmp.matrix.decompose(cup.mug.position, cup.mug.quaternion, tmp.v[3]);
       }
       const closed = between(SIP.take - 0.35, SIP.take) * (1 - between(SIP.release, SIP.release + 0.3));
       shapeHand("Left", "grip", sipReach * closed);

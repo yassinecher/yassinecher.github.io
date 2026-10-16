@@ -7,6 +7,7 @@ import { NIGHT_LIGHTS, createBakedMaterial } from "./bakedMaterial";
 import { createCoffeeSteamMaterial } from "./coffeeSteamMaterial";
 import { createMacScreen, createPcScreen, createTvScreen } from "./screens";
 import { strum, tvSound } from "../lib/sound";
+import { roomFx } from "../components/RoomFx";
 
 // "My Room in 3D" by Bruno Simon (models and bakes), assembled in its original coordinates.
 
@@ -222,7 +223,11 @@ export const Room = ({ nightRef, screenRef, onAction, swivelRef, tvRef, coffeeRe
     ...guitarHover,
     onPointerOver: (e) => {
       guitarHover.onPointerOver(e);
-      strum();
+      if (strum()) roomFx("sound", e.nativeEvent.clientX, e.nativeEvent.clientY - 40);
+    },
+    onClick: (e) => {
+      e.stopPropagation();
+      if (strum()) roomFx("sound", e.nativeEvent.clientX, e.nativeEvent.clientY - 40);
     },
   };
 
